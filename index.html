@@ -276,7 +276,7 @@ function App() {
         </div>
         {showGuide&&(
           <div style={{marginTop:16}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+            <div style={{marginBottom:16}}>
               {[
                 {icon:"🚀",title:"開團",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
                 {icon:"🙋",title:"跟團",desc:"在活動首頁點選活動，填寫姓名、信箱、可用時間，送出跟團"},
@@ -285,11 +285,9 @@ function App() {
                 {icon:"🌟",title:"許願池",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
                 {icon:"📅",title:"Google Calendar",desc:"成團後開團者確定時間，所有參加者可一鍵匯出到 Google 行事曆"},
               ].map(({icon,title,desc})=>(
-                <div key={title} style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:14}}>
-                  <div style={{fontSize:20,marginBottom:6}}>{icon}</div>
-                  <div style={{fontWeight:700,fontSize:13,color:"#38bdf8",marginBottom:4}}>{title}</div>
-                  <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.6}}>{desc}</div>
-                </div>
+                             <div key={title} style={{fontSize:13,color:"#6b8aa8",marginBottom:8,lineHeight:1.6}}>
+               {icon} <span style={{fontWeight:700,color:"#38bdf8"}}>{title}</span>：{desc}
+             </div>
               ))}
             </div>
             <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14}}>
