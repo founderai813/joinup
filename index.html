@@ -48,6 +48,28 @@ const TIME_SLOTS = [
   { key:"dinner",    label:"晚餐", time:"17:00–19:00", color:"#a78bfa" },
   { key:"evening",   label:"晚上", time:"19:00–21:00", color:"#38bdf8" },
 ];
+const CATEGORIES = [
+  { key:"food",    label:"🍽 聚餐", color:"#f97316" },
+  { key:"sport",   label:"🏃 運動", color:"#34d399" },
+  { key:"travel",  label:"✈️ 旅遊", color:"#38bdf8" },
+  { key:"game",    label:"🎲 桌遊", color:"#a78bfa" },
+  { key:"study",   label:"📚 學習", color:"#fbbf24" },
+  { key:"other",   label:"📌 其他", color:"#6b8aa8" },
+];
+const getCategory=(k)=>CATEGORIES.find(c=>c.key===k)||CATEGORIES[5];
+// CSV 匯出工具
+const downloadCSV=(filename,rows)=>{
+  const csv=rows.map(r=>r.map(c=>{
+    const s=String(c==null?"":c).replace(/"/g,'""');
+    return /[",\n]/.test(s)?`"${s}"`:s;
+  }).join(",")).join("\n");
+  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},100);
+};
 const ls = {
   get:(k)=>{try{const v=localStorage.getItem("ju_"+k);return v?JSON.parse(v):null;}catch{return null;}},
   set:(k,v)=>{try{localStorage.setItem("ju_"+k,JSON.stringify(v));}catch{}},
@@ -234,6 +256,25 @@ function App() {
   // ── HOME ──
   const HomeTab=()=>{
     const [showGuide,setShowGuide]=useState(false);
+    const [myEmail,setMyEmail]=useState("");
+    const [myResults,setMyResults]=useState(null);
+    const queryMine=()=>{
+      const em=myEmail.trim().toLowerCase();
+      if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}
+      const results=[];
+      Object.keys(groups).forEach(id=>{
+        const g=groups[id];
+        if((g.email||"").toLowerCase()===em){
+          results.push({id,g,role:"organizer",name:g.name});
+        }
+        Object.keys(g.joiners||{}).forEach(n=>{
+          if((g.joiners[n].email||"").toLowerCase()===em){
+            results.push({id,g,role:"joiner",name:n});
+          }
+        });
+      });
+      setMyResults(results);
+    };
 
     return(<div style={{padding:"0 10px"}}>
       {/* 使用教學 */}
@@ -275,6 +316,38 @@ function App() {
         <button style={{...S.btn("primary"),width:"100%"}} onClick={()=>setTab("register")}>前往報名 →</button>
       </div>
 
+      {/* 我參加過的活動 */}
+      <div style={S.card}>
+        <h2 style={S.sT}>📁 我參加過的活動</h2>
+        <p style={{fontSize:13,color:"#6b8aa8",marginBottom:10}}>輸入報名時使用的信箱，找出你開過或跟過的活動</p>
+        <div style={{display:"flex",gap:8}}>
+          <input style={{...S.input,flex:1}} placeholder="your@email.com" value={myEmail} onChange={e=>setMyEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&queryMine()}/>
+          <button style={S.btn("primary")} onClick={queryMine}>查詢</button>
+        </div>
+        {myResults!==null&&(
+          <div style={{marginTop:14}}>
+            {myResults.length===0?(
+              <p style={{fontSize:13,color:"#6b8aa8"}}>此信箱沒有任何活動紀錄</p>
+            ):myResults.map((r,i)=>{
+              const c=getCategory(r.g.category);
+              return(
+                <div key={r.id+"-"+i} onClick={()=>setTab("view-"+r.id)} style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:12,marginBottom:8,cursor:"pointer"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:r.role==="organizer"?"#38bdf822":"#34d39922",color:r.role==="organizer"?"#38bdf8":"#34d399",fontWeight:700}}>{r.role==="organizer"?"🚀 主揪":"🙋 跟團"}</span>
+                      <span style={{fontWeight:700,fontSize:14}}>{r.g.activityName}</span>
+                      <span style={{fontSize:11,color:c.color}}>{c.label}</span>
+                    </div>
+                    <span style={{fontSize:11,color:"#6b8aa8"}}>{fmt(r.g.dateStart)}</span>
+                  </div>
+                  <div style={{fontSize:11,color:"#6b8aa8",marginTop:4}}>編號 #{r.id} ｜ {r.g.status==="confirmed"?"✅ 已成團":"⏳ 進行中"}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* 許願排行 */}
       {wishes.length>0&&(
         <div style={S.card}>
@@ -297,7 +370,19 @@ function App() {
 
   // ── REGISTER（報名活動）──
   const RegisterTab=()=>{
-    const allIds=Object.keys(groups);
+    const [search,setSearch]=useState("");
+    const [filterCat,setFilterCat]=useState("all");
+    const matches=(id)=>{
+      const g=groups[id];
+      const q=search.trim().toLowerCase();
+      if(q){
+        const hay=`${id} ${g.activityName||""} ${g.name||""} ${g.location||""} ${g.description||""}`.toLowerCase();
+        if(!hay.includes(q))return false;
+      }
+      if(filterCat!=="all"&&(g.category||"other")!==filterCat)return false;
+      return true;
+    };
+    const allIds=Object.keys(groups).filter(matches);
     const activeIds=allIds.filter(id=>groups[id].status!=="confirmed"||groups[id].confirmed?.allowJoin!==false);
     const confirmedIds=allIds.filter(id=>groups[id].status==="confirmed");
 
@@ -313,6 +398,7 @@ function App() {
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
               <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
               <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
+              {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
               {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
               {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
               {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
@@ -331,6 +417,20 @@ function App() {
     };
 
     return(<div style={{padding:"0 10px"}}>
+      {/* 搜尋與篩選 */}
+      <div style={S.card}>
+        <F label="🔍 搜尋活動"><input style={S.input} placeholder="輸入活動名稱、主揪、地點、編號…" value={search} onChange={e=>setSearch(e.target.value)}/></F>
+        <div style={{marginTop:10}}>
+          <label style={S.label}>分類篩選</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            <div onClick={()=>setFilterCat("all")} style={{padding:"6px 12px",borderRadius:8,border:`2px solid ${filterCat==="all"?"#38bdf8":"#1e2d45"}`,background:filterCat==="all"?"#0c2a4a":"#080d18",cursor:"pointer",fontSize:12,fontWeight:700,color:filterCat==="all"?"#38bdf8":"#6b8aa8"}}>全部</div>
+            {CATEGORIES.map(c=>(
+              <div key={c.key} onClick={()=>setFilterCat(c.key)} style={{padding:"6px 12px",borderRadius:8,border:`2px solid ${filterCat===c.key?c.color:"#1e2d45"}`,background:filterCat===c.key?c.color+"22":"#080d18",cursor:"pointer",fontSize:12,fontWeight:700,color:filterCat===c.key?c.color:"#6b8aa8"}}>{c.label}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* 開團中 */}
       <div style={S.card}>
         <h2 style={S.sT}>🎪 開團中</h2>
@@ -356,7 +456,7 @@ function App() {
 
   // ── ORGANIZER ──
   const OrganizerTab=()=>{
-    const [form,setForm]=useState({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open"});
+    const [form,setForm]=useState({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"});
     const [organizerSlots,setOrganizerSlots]=useState({});
     const [done,setDone]=useState(null);
     const [idErr,setIdErr]=useState("");
@@ -382,7 +482,7 @@ function App() {
       <div style={{fontSize:32,fontWeight:900,color:"#38bdf8",letterSpacing:4,fontFamily:"monospace",margin:"10px 0"}}>{done}</div>
       <div style={{background:"#1e0a0a",border:"1px solid #f8717144",borderRadius:8,padding:"10px 16px",margin:"0 auto 16px",maxWidth:360,fontSize:13,color:"#f87171"}}>⚠ 請記住管理密碼！{form.groupType==="private"&&<><br/>跟團密碼：<b>{form.joinPassword}</b></>}</div>
       <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
-        <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open"});setOrganizerSlots({});}}>再開一團</button>
+        <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"});setOrganizerSlots({});}}>再開一團</button>
         <button style={S.btn("primary")} onClick={()=>setTab("manage")}>前往管理頁面</button>
       </div>
     </div></div>);
@@ -410,6 +510,14 @@ function App() {
       <div style={S.g2}>
         <F label="開團者姓名" required><input style={S.input} placeholder="你的名字" value={form.name} onChange={e=>set("name",e.target.value)}/></F>
         <F label="活動名稱" required><input style={S.input} placeholder="例：期末慶功宴" value={form.activityName} onChange={e=>set("activityName",e.target.value)}/></F>
+      </div>
+      <div style={{marginBottom:14}}>
+        <label style={S.label}>活動分類</label>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          {CATEGORIES.map(c=>(
+            <div key={c.key} onClick={()=>set("category",c.key)} style={{padding:"8px 14px",borderRadius:8,border:`2px solid ${form.category===c.key?c.color:"#1e2d45"}`,background:form.category===c.key?c.color+"22":"#080d18",cursor:"pointer",fontSize:13,fontWeight:700,color:form.category===c.key?c.color:"#6b8aa8"}}>{c.label}</div>
+          ))}
+        </div>
       </div>
       <div style={S.g2}>
         <F label="信箱" required hint="僅供活動通知"><input type="email" style={S.input} placeholder="your@email.com" value={form.email} onChange={e=>set("email",e.target.value)}/></F>
@@ -538,8 +646,23 @@ function App() {
           {group.location&&<span>📍 {group.location}</span>}
           {group.cost&&<span>💰 {group.cost}</span>}
           {maxP&&<span>👥 上限{maxP}人</span>}
+          {group.category&&(()=>{const c=getCategory(group.category);return <span style={{color:c.color}}>{c.label}</span>;})()}
         </div>
         {group.description&&<p style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>{group.description}</p>}
+
+        {/* 費用分攤計算 */}
+        {group.cost&&(()=>{
+          const n=parseInt(String(group.cost).replace(/[^\d]/g,""));
+          const totalPeople=1+Object.keys(group.joiners||{}).length;
+          if(!n||totalPeople<1)return null;
+          const per=Math.ceil(n/totalPeople);
+          return(
+            <div style={{background:"#080d18",border:"1px solid #fbbf2433",borderRadius:10,padding:12,marginBottom:10}}>
+              <div style={{fontSize:12,color:"#fbbf24",fontWeight:700,marginBottom:4}}>💰 費用分攤試算</div>
+              <div style={{fontSize:12,color:"#6b8aa8"}}>總費用 NT${n} ÷ 目前 {totalPeople} 人 = <span style={{color:"#fbbf24",fontWeight:700}}>每人約 NT${per}</span></div>
+            </div>
+          );
+        })()}
 
         {/* 已成團：確定資訊 + 匯出 */}
         {isConfirmed&&group.confirmed?.finalDate&&(
@@ -803,6 +926,14 @@ function App() {
       <div style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:16,marginBottom:16}}>
         <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:12}}>✏️ 活動資訊</div>
         <div style={S.g2}><F label="活動名稱"><input style={S.input} value={editGroup?.activityName||""} onChange={e=>set("activityName",e.target.value)}/></F><F label="開團者姓名"><input style={S.input} value={editGroup?.name||""} onChange={e=>set("name",e.target.value)}/></F></div>
+        <div style={{marginBottom:14}}>
+          <label style={S.label}>活動分類</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {CATEGORIES.map(c=>(
+              <div key={c.key} onClick={()=>set("category",c.key)} style={{padding:"6px 12px",borderRadius:8,border:`2px solid ${editGroup?.category===c.key?c.color:"#1e2d45"}`,background:editGroup?.category===c.key?c.color+"22":"#080d18",cursor:"pointer",fontSize:12,fontWeight:700,color:editGroup?.category===c.key?c.color:"#6b8aa8"}}>{c.label}</div>
+            ))}
+          </div>
+        </div>
         <div style={S.g2}><F label="信箱" hint="僅供通知"><input type="email" style={S.input} value={editGroup?.email||""} onChange={e=>set("email",e.target.value)}/></F><F label="聯絡方式"><input style={S.input} value={editGroup?.contact||""} onChange={e=>set("contact",e.target.value)}/></F></div>
         <div style={S.g2}><F label="開始日期"><input type="date" style={S.input} value={editGroup?.dateStart||""} onChange={e=>set("dateStart",e.target.value)}/></F><F label="結束日期"><input type="date" style={S.input} value={editGroup?.dateEnd||""} onChange={e=>set("dateEnd",e.target.value)}/></F></div>
         <div style={S.g3}><F label="時數"><input type="number" style={S.input} value={editGroup?.hours||""} onChange={e=>set("hours",e.target.value)}/></F><F label="費用"><input style={S.input} value={editGroup?.cost||""} onChange={e=>set("cost",e.target.value)}/></F><F label="人數上限"><input type="number" style={S.input} value={editGroup?.maxPeople||""} onChange={e=>set("maxPeople",e.target.value)}/></F></div>
@@ -814,7 +945,19 @@ function App() {
       {/* 跟團者列表 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff"}}>🙋 跟團者（{jnames.length}{joinerLimit?`/${joinerLimit}`:""}人）</div>
-        {joinerLimit&&<span style={{fontSize:12,color:jnames.length>=joinerLimit?"#f87171":"#34d399"}}>{jnames.length>=joinerLimit?"⛔ 額滿":`還剩 ${joinerLimit-jnames.length} 個名額`}</span>}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {joinerLimit&&<span style={{fontSize:12,color:jnames.length>=joinerLimit?"#f87171":"#34d399"}}>{jnames.length>=joinerLimit?"⛔ 額滿":`還剩 ${joinerLimit-jnames.length} 個名額`}</span>}
+          {jnames.length>0&&<button style={{...S.btn("secondary"),padding:"6px 12px",fontSize:12}} onClick={()=>{
+            const rows=[["姓名","信箱","聯絡方式","已報名","時段","備註"]];
+            jnames.forEach(n=>{
+              const j=joiners[n];
+              const slotLabels=TIME_SLOTS.filter(s=>Object.keys(j.slots||{}).some(k=>k.endsWith("-"+s.key))).map(s=>s.label).join("、");
+              rows.push([n,j.email||"",j.contact||"",j.isRegistered?"是":"",slotLabels,j.note||""]);
+            });
+            downloadCSV(`跟團者_${group.activityName||authedId}.csv`,rows);
+            showToast("📥 已匯出 CSV");
+          }}>📥 匯出 CSV</button>}
+        </div>
       </div>
       {jnames.length===0&&<p style={{fontSize:13,color:"#374a5e"}}>還沒有人跟團</p>}
       {jnames.map((n,i)=>{
@@ -927,7 +1070,15 @@ function App() {
           </div>
         ))}
       </div>
-      <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:10}}>🎪 所有活動</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+        <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff"}}>🎪 所有活動</div>
+        {allIds.length>0&&<button style={{...S.btn("secondary"),padding:"6px 12px",fontSize:12}} onClick={()=>{
+          const rows=[["編號","活動名稱","分類","主揪","信箱","跟團人數","狀態","開始日期"]];
+          allIds.forEach(id=>{const g=groups[id];rows.push([id,g.activityName,getCategory(g.category).label,g.name,g.email,Object.keys(g.joiners||{}).length,g.status==="confirmed"?"已成團":"進行中",g.dateStart||""]);});
+          downloadCSV("所有活動.csv",rows);
+          showToast("📥 已匯出 CSV");
+        }}>📥 匯出全部活動</button>}
+      </div>
       {allIds.map((id,i)=>{const g=groups[id],jc=Object.keys(g.joiners||{}).length;return(<div key={id} style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:14,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <div style={{cursor:"pointer",flex:1}} onClick={()=>setSubPage("group-"+id)}>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={S.badge(COLORS[i%COLORS.length])}># {id}</span><span style={{fontWeight:700,fontSize:13}}>{g.activityName}</span>{g.status==="confirmed"&&<span style={{fontSize:11,color:"#34d399"}}>✅成團</span>}</div>
