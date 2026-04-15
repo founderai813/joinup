@@ -4,6 +4,13 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>JoinUp 揪團神器</title>
+<meta name="description" content="揪團神器 — 開團、跟團、找出共同空閒時間，成團後一鍵匯入 Google Calendar"/>
+<meta name="theme-color" content="#080d18"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="JoinUp"/>
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23080d18'/><text x='50' y='70' font-size='60' text-anchor='middle'>🎯</text></svg>"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -32,8 +39,21 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #080d18; font-family: 'DM Sans', sans-serif; color: #dde8f5; min-height: 100vh; }
 input, textarea, button, select { font-family: inherit; }
-::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0f1729; } ::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 3px; }
+::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track { background: #0f1729; } ::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 3px; }
+@media (max-width: 600px) {
+  .ju-nav { gap: 0 !important; }
+  .ju-nav > button { padding: 10px 10px !important; font-size: 12px !important; }
+  .ju-topbar { padding: 12px 12px 0 !important; }
+  .ju-title { font-size: 18px !important; }
+}
 </style>
+<script>
+if("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  });
+}
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -57,6 +77,20 @@ const CATEGORIES = [
   { key:"other",   label:"📌 其他", color:"#6b8aa8" },
 ];
 const getCategory=(k)=>CATEGORIES.find(c=>c.key===k)||CATEGORIES[5];
+// 密碼 Hash (SHA-256)
+const sha256=async(text)=>{
+  try{
+    const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text||""));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }catch{return text;}
+};
+const isHash=(s)=>typeof s==="string"&&/^[0-9a-f]{64}$/.test(s);
+// 判斷密碼是否吻合（相容舊明文）：傳入使用者輸入 + 存檔中的值
+const matchPw=async(input,stored)=>{
+  if(!stored)return false;
+  if(isHash(stored)) return (await sha256(input))===stored;
+  return input===stored;
+};
 // CSV 匯出工具
 const downloadCSV=(filename,rows)=>{
   const csv=rows.map(r=>r.map(c=>{
@@ -82,6 +116,39 @@ const DB = {
 const fmt=(d)=>d?new Date(d).toLocaleDateString("zh-TW"):"—";
 const isValidEmail=(e)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
+// iCal (.ics) 匯出
+const downloadICS = (title, date, timeLabel, timeRange, location, description) => {
+  const slot = TIME_SLOTS.find(s=>s.label===timeLabel);
+  const [startH, endH] = timeRange ? timeRange.split("–").map(t=>t.trim()) : ["09:00","10:00"];
+  const pad = (n)=>String(n).padStart(2,"0");
+  const dt = (d,t)=>d.replace(/-/g,"")+"T"+t.replace(":","")+"00";
+  const uid = `joinup-${Date.now()}@futurestarai.com`;
+  const now = new Date();
+  const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+  const esc = (s)=>String(s||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//JoinUp//TW",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=Asia/Taipei:${dt(date,startH)}`,
+    `DTEND;TZID=Asia/Taipei:${dt(date,endH)}`,
+    `SUMMARY:${esc(title)}`,
+    location?`LOCATION:${esc(location)}`:"",
+    description?`DESCRIPTION:${esc(description)}`:`DESCRIPTION:${esc("由 JoinUp 揪團神器建立")}`,
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ].filter(Boolean).join("\r\n");
+  const blob = new Blob([ics], {type:"text/calendar;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${title||"event"}.ics`;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},100);
+};
 // Google Calendar 匯出
 const exportToGCal = (title, date, timeLabel, timeRange, location) => {
   const slot = TIME_SLOTS.find(s=>s.label===timeLabel);
@@ -190,6 +257,7 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
 function App() {
   const [tab, setTab] = useState("home");
   const [toast, setToast] = useState("");
+  const [template, setTemplate] = useState(null);
   const [groups, setGroups] = useState({});
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -372,7 +440,13 @@ function App() {
   const RegisterTab=()=>{
     const [search,setSearch]=useState("");
     const [filterCat,setFilterCat]=useState("all");
-    const matches=(id)=>{
+    const [showArchived,setShowArchived]=useState(false);
+    const today=new Date().toISOString().slice(0,10);
+    const isArchived=(g)=>{
+      const end=g.confirmed?.finalDate||g.dateEnd||g.dateStart;
+      return end&&end<today;
+    };
+    const matchSearchCat=(id)=>{
       const g=groups[id];
       const q=search.trim().toLowerCase();
       if(q){
@@ -382,9 +456,10 @@ function App() {
       if(filterCat!=="all"&&(g.category||"other")!==filterCat)return false;
       return true;
     };
-    const allIds=Object.keys(groups).filter(matches);
-    const activeIds=allIds.filter(id=>groups[id].status!=="confirmed"||groups[id].confirmed?.allowJoin!==false);
-    const confirmedIds=allIds.filter(id=>groups[id].status==="confirmed");
+    const liveIds=Object.keys(groups).filter(id=>matchSearchCat(id)&&!isArchived(groups[id]));
+    const openIds=liveIds.filter(id=>groups[id].status!=="confirmed");
+    const confirmedIds=liveIds.filter(id=>groups[id].status==="confirmed");
+    const archivedIds=Object.keys(groups).filter(id=>matchSearchCat(id)&&isArchived(groups[id]));
 
     const ActivityCard=({id,g,i})=>{
       const jc=Object.keys(g.joiners||{}).length;
@@ -434,8 +509,8 @@ function App() {
       {/* 開團中 */}
       <div style={S.card}>
         <h2 style={S.sT}>🎪 開團中</h2>
-        {allIds.filter(id=>groups[id].status!=="confirmed").length===0&&<p style={{color:"#6b8aa8",fontSize:14}}>目前沒有進行中的活動</p>}
-        {allIds.filter(id=>groups[id].status!=="confirmed").map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)}
+        {openIds.length===0&&<p style={{color:"#6b8aa8",fontSize:14}}>目前沒有進行中的活動</p>}
+        {openIds.map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)}
       </div>
 
       {/* 已成團 */}
@@ -446,9 +521,20 @@ function App() {
         </div>
       )}
 
-      {allIds.length===0&&(
+      {/* 已結束 */}
+      {archivedIds.length>0&&(
         <div style={S.card}>
-          <p style={{color:"#6b8aa8",fontSize:14,textAlign:"center"}}>目前還沒有任何活動，<span style={{color:"#38bdf8",cursor:"pointer",fontWeight:700}} onClick={()=>setTab("organizer")}>前往開團 →</span></p>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowArchived(p=>!p)}>
+            <h2 style={{...S.sT,margin:0}}>📦 已結束活動（{archivedIds.length}）</h2>
+            <span style={{color:"#38bdf8",fontSize:14}}>{showArchived?"▲ 收起":"▼ 展開"}</span>
+          </div>
+          {showArchived&&<div style={{marginTop:12,opacity:0.7}}>{archivedIds.map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)}</div>}
+        </div>
+      )}
+
+      {liveIds.length===0&&archivedIds.length===0&&(
+        <div style={S.card}>
+          <p style={{color:"#6b8aa8",fontSize:14,textAlign:"center"}}>沒有符合條件的活動，<span style={{color:"#38bdf8",cursor:"pointer",fontWeight:700}} onClick={()=>setTab("organizer")}>前往開團 →</span></p>
         </div>
       )}
     </div>);
@@ -456,7 +542,15 @@ function App() {
 
   // ── ORGANIZER ──
   const OrganizerTab=()=>{
-    const [form,setForm]=useState({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"});
+    const [form,setForm]=useState(()=>{
+      const base={id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"};
+      if(template){
+        const t=template;
+        return{...base,name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other"};
+      }
+      return base;
+    });
+    useEffect(()=>{if(template)setTemplate(null);},[]);
     const [organizerSlots,setOrganizerSlots]=useState({});
     const [done,setDone]=useState(null);
     const [idErr,setIdErr]=useState("");
@@ -471,7 +565,9 @@ function App() {
       const id=form.id.trim().toLowerCase();
       if(groups[id]){setIdErr("此編號已被使用");return;}
       setIdErr("");
-      const next={...groups,[id]:{...form,id,organizerSlots,joiners:{},createdAt:Date.now(),status:"open"}};
+      const hashedPw=await sha256(form.password);
+      const hashedJoin=form.joinPassword?await sha256(form.joinPassword):"";
+      const next={...groups,[id]:{...form,id,password:hashedPw,joinPassword:hashedJoin,organizerSlots,joiners:{},createdAt:Date.now(),status:"open"}};
       await saveGroups(next);
       setDone(id); showToast("✅ 開團成功！");
     };
@@ -547,10 +643,10 @@ function App() {
   // ── VIEW (活動詳情 + 跟團入口) ──
   const ViewTab=({gid})=>{
     const [localGroup,setLocalGroup]=useState(null);
-    const [joinStep,setJoinStep]=useState(0); // 0=看詳情 1=驗證密碼(限定) 2=填資料 3=已成團報名
+    const [joinStep,setJoinStep]=useState(0); // 0=看詳情 1=驗證密碼(限定) 2=填資料 3=已成團報名 4=候補填資料
     const [joinPw,setJoinPw]=useState("");
     const [name,setName]=useState(""),[email,setEmail]=useState(""),[contact,setContact]=useState(""),[slots,setSlots]=useState({}),[note,setNote]=useState("");
-    const [submitting,setSubmitting]=useState(false),[done,setDone]=useState(false);
+    const [submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[doneMode,setDoneMode]=useState("joiner");
 
     useEffect(()=>{
       if(window._fbReady&&window.dbListen){
@@ -600,7 +696,21 @@ function App() {
       if(latestIsFull){showToast("❌ 很抱歉，名額已滿！");setSubmitting(false);return;}
       const next={...latest,[gid]:{...latestGroup,joiners:{...latestJoiners,[name.trim()]:{slots,note,email,contact,joinedAt:Date.now()}}}};
       await saveGroups(next);
-      setDone(true);showToast("✅ 跟團成功！");setSubmitting(false);
+      setDoneMode("joiner");setDone(true);showToast("✅ 跟團成功！");setSubmitting(false);
+    };
+
+    const submitWaitlist=async()=>{
+      if(!name.trim()){showToast("❗ 請填寫姓名");return;}
+      if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
+      setSubmitting(true);
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const latestGroup=latest[gid];
+      if(!latestGroup){showToast("❌ 活動不存在");setSubmitting(false);return;}
+      const waitlist=latestGroup.waitlist||{};
+      const next={...latest,[gid]:{...latestGroup,waitlist:{...waitlist,[name.trim()]:{slots,note,email,contact,joinedAt:Date.now()}}}};
+      await saveGroups(next);
+      setDoneMode("waitlist");setDone(true);showToast("⏳ 已加入候補！");setSubmitting(false);
     };
 
     const submitRegister=async()=>{
@@ -618,9 +728,9 @@ function App() {
     };
 
     if(done)return(<div style={{...S.card,margin:"16px 10px"}}><div style={{textAlign:"center",padding:"20px 0"}}>
-      <div style={{fontSize:48}}>{isConfirmed?"🎉":"🙌"}</div>
-      <h2 style={{...S.sT,textAlign:"center"}}>{isConfirmed?"報名成功！":"跟團成功！"}</h2>
-      <p style={{color:"#6b8aa8",marginBottom:16}}>{isConfirmed?"已報名，等開團者通知！":"已送出可用時間！"}</p>
+      <div style={{fontSize:48}}>{doneMode==="waitlist"?"⏳":isConfirmed?"🎉":"🙌"}</div>
+      <h2 style={{...S.sT,textAlign:"center"}}>{doneMode==="waitlist"?"已加入候補！":isConfirmed?"報名成功！":"跟團成功！"}</h2>
+      <p style={{color:"#6b8aa8",marginBottom:16}}>{doneMode==="waitlist"?"當有人退出，主揪會聯繫你遞補。":isConfirmed?"已報名，等開團者通知！":"已送出可用時間！"}</p>
       {isConfirmed&&group.confirmed?.finalDate&&(
         <button style={{...S.btn("success"),marginBottom:10}} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>📅 加入 Google Calendar</button>
       )}
@@ -656,9 +766,14 @@ function App() {
             <div style={{fontWeight:700,color:"#34d399",marginBottom:8,fontSize:13}}>✅ 確定活動資訊</div>
             <div style={{fontSize:13,color:"#bae6fd",marginBottom:4}}>📅 {group.confirmed.finalDate} {group.confirmed.finalSlot}</div>
             {group.confirmed.finalLocation&&<div style={{fontSize:13,color:"#bae6fd",marginBottom:10}}>📍 {group.confirmed.finalLocation}</div>}
-            <button style={S.btn("success")} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>
-              📅 匯出到 Google Calendar
-            </button>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button style={S.btn("success")} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>
+                📅 Google Calendar
+              </button>
+              <button style={S.btn("secondary")} onClick={()=>downloadICS(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location,group.description)}>
+                📥 iCal / Apple 行事曆
+              </button>
+            </div>
           </div>
         )}
 
@@ -685,7 +800,8 @@ function App() {
               <div style={{textAlign:"center",padding:20}}>
                 <div style={{fontSize:36,marginBottom:8}}>🚫</div>
                 <div style={{fontSize:16,fontWeight:800,color:"#f87171",marginBottom:6}}>名額已滿</div>
-                <div style={{fontSize:13,color:"#9a4a4a"}}>{joinerCount}/{joinerLimit} 人</div>
+                <div style={{fontSize:13,color:"#9a4a4a",marginBottom:14}}>{joinerCount}/{joinerLimit} 人 ｜ 候補中：{Object.keys(group.waitlist||{}).length}</div>
+                <button style={{...S.btn("warning"),width:"100%"}} onClick={()=>setJoinStep(group.groupType==="private"?1:4)}>⏳ 加入候補名單</button>
               </div>
             ):(
               <>
@@ -709,15 +825,16 @@ function App() {
           <F label="跟團密碼" required><input type="password" style={S.input} placeholder="請輸入開團者提供的密碼" value={joinPw} onChange={e=>setJoinPw(e.target.value)}/></F>
           <div style={{display:"flex",gap:10,marginTop:14}}>
             <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
-            <button style={{...S.btn("primary"),flex:1}} onClick={()=>{if(joinPw===group.joinPassword){setJoinStep(2);}else showToast("❌ 密碼錯誤");}}>確認 →</button>
+            <button style={{...S.btn("primary"),flex:1}} onClick={async()=>{if(await matchPw(joinPw,group.joinPassword)){setJoinStep(2);}else showToast("❌ 密碼錯誤");}}>確認 →</button>
           </div>
         </div>
       )}
 
       {/* 跟團填資料 */}
-      {joinStep===2&&(
+      {(joinStep===2||joinStep===4)&&(
         <div style={S.card}>
-          <h3 style={{fontWeight:700,fontSize:15,marginBottom:14,color:"#38bdf8"}}>🙋 填寫跟團資料</h3>
+          <h3 style={{fontWeight:700,fontSize:15,marginBottom:14,color:joinStep===4?"#fbbf24":"#38bdf8"}}>{joinStep===4?"⏳ 加入候補名單":"🙋 填寫跟團資料"}</h3>
+          {joinStep===4&&<div style={{fontSize:12,color:"#fbbf24",marginBottom:12,background:"#1a1205",border:"1px solid #fbbf2433",borderRadius:8,padding:10}}>此活動已額滿，你將被加入候補。當有人退出，主揪會聯繫並將你遞補上正式名單。</div>}
           <div style={{marginBottom:14}}><F label="姓名" required><input style={S.input} placeholder="你的名字" value={name} onChange={e=>setName(e.target.value)}/>{isExisting&&<div style={{fontSize:11,color:"#fbbf24",marginTop:4}}>⚠ 此名字已有記錄，送出後會覆蓋</div>}</F></div>
           <div style={S.g2}>
             <F label="信箱" required hint="僅供活動通知"><input type="email" style={S.input} placeholder="your@email.com" value={email} onChange={e=>setEmail(e.target.value)}/></F>
@@ -729,7 +846,7 @@ function App() {
           <F label="備註"><textarea style={S.textarea} placeholder="有什麼想說的…" value={note} onChange={e=>setNote(e.target.value)}/></F>
           <div style={{display:"flex",gap:10,marginTop:14}}>
             <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
-            <button style={{...S.btn("success"),flex:1,opacity:submitting?0.6:1}} onClick={submitJoin} disabled={submitting}>{submitting?"送出中…":"🙌 送出跟團！"}</button>
+            <button style={{...S.btn(joinStep===4?"warning":"success"),flex:1,opacity:submitting?0.6:1}} onClick={joinStep===4?submitWaitlist:submitJoin} disabled={submitting}>{submitting?"送出中…":(joinStep===4?"⏳ 加入候補":"🙌 送出跟團！")}</button>
           </div>
         </div>
       )}
@@ -764,7 +881,52 @@ function App() {
           )}
         </div>
       )}
+
+      {/* 留言板 */}
+      <CommentBoard gid={gid} group={group}/>
     </div>);
+  };
+
+  // ── 留言板 ──
+  const CommentBoard=({gid,group})=>{
+    const [cName,setCName]=useState("");
+    const [cText,setCText]=useState("");
+    const [posting,setPosting]=useState(false);
+    const comments=group.comments||[];
+    const post=async()=>{
+      if(!cName.trim()){showToast("❗ 請填寫名字");return;}
+      if(!cText.trim()){showToast("❗ 請填寫留言");return;}
+      setPosting(true);
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const lg=latest[gid]; if(!lg){setPosting(false);return;}
+      const next={...latest,[gid]:{...lg,comments:[...(lg.comments||[]),{name:cName.trim(),text:cText.trim(),time:Date.now()}]}};
+      await saveGroups(next);
+      setCText(""); setPosting(false); showToast("💬 已留言");
+    };
+    return(
+      <div style={S.card}>
+        <h3 style={{...S.sT}}>💬 活動討論區（{comments.length}）</h3>
+        <div style={S.g2}>
+          <F label="你的名字"><input style={S.input} placeholder="暱稱" value={cName} onChange={e=>setCName(e.target.value)}/></F>
+          <div></div>
+        </div>
+        <F label="留言內容"><textarea style={S.textarea} placeholder="想說什麼…" value={cText} onChange={e=>setCText(e.target.value)}/></F>
+        <button style={{...S.btn("primary"),marginTop:10,opacity:posting?0.6:1}} onClick={post} disabled={posting}>{posting?"送出中…":"💬 送出留言"}</button>
+        <div style={{marginTop:16}}>
+          {comments.length===0&&<p style={{fontSize:13,color:"#374a5e"}}>還沒有人留言，搶先發言吧</p>}
+          {[...comments].sort((a,b)=>b.time-a.time).map((c,i)=>(
+            <div key={i} style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:12,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <span style={{fontWeight:700,fontSize:13,color:"#38bdf8"}}>{c.name}</span>
+                <span style={{fontSize:11,color:"#374a5e"}}>{new Date(c.time).toLocaleString("zh-TW")}</span>
+              </div>
+              <div style={{fontSize:13,color:"#dde8f5",whiteSpace:"pre-wrap"}}>{c.text}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   // ── ADMIN ──
@@ -776,10 +938,16 @@ function App() {
     const [editingConfirmed,setEditingConfirmed]=useState(false);
     const [confirmedDraft,setConfirmedDraft]=useState({finalDate:"",finalSlot:"",finalLocation:"",allowJoin:true});
 
-    const login=()=>{
+    const login=async()=>{
       const id=gid.trim().toLowerCase(),g=groups[id];
       if(!g){showToast("❌ 找不到此開團編號");return;}
-      if(g.password!==pw){showToast("❌ 密碼錯誤");return;}
+      if(!(await matchPw(pw,g.password))){showToast("❌ 密碼錯誤");return;}
+      // 若舊明文密碼成功登入，升級為 Hash
+      if(!isHash(g.password)){
+        const hashed=await sha256(pw);
+        const next={...groups,[id]:{...g,password:hashed}};
+        await saveGroups(next);
+      }
       setAuthedId(id);setEditGroup({...g});setStep(2);
     };
     const group=authedId?groups[authedId]:null;
@@ -869,6 +1037,7 @@ function App() {
         <h2 style={{...S.sT,margin:0}}>⚙️ {group?.activityName}</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button style={S.btn("ghost")} onClick={()=>setTab("view-"+authedId)}>查看活動</button>
+          <button style={{...S.btn("secondary"),padding:"8px 14px",fontSize:12}} onClick={()=>{setTemplate(group);setTab("organizer");showToast("📋 已套用為新團模板");}}>📋 再開一團</button>
           <button style={{...S.btn("danger"),padding:"8px 14px",fontSize:12}} onClick={deleteGroup}>🗑 刪除</button>
           <button style={S.btn("ghost")} onClick={()=>{setStep(1);setAuthedId(null);setGid("");setPw("");}}>登出</button>
         </div>
@@ -981,6 +1150,54 @@ function App() {
           <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>{slotLabels.map(s=><span key={s.key} style={S.badge(s.color)}>{s.label}</span>)}{slotLabels.length===0&&!j.isRegistered&&<span style={{fontSize:12,color:"#374a5e"}}>未選時段</span>}</div>
         </div>);
       })}
+
+      {/* 候補名單 */}
+      {(()=>{
+        const wl=group?.waitlist||{};
+        const wnames=Object.keys(wl);
+        if(wnames.length===0)return null;
+        const promote=async(n)=>{
+          const next={...groups};
+          const g={...next[authedId]};
+          g.joiners={...(g.joiners||{}),[n]:wl[n]};
+          const nwl={...wl}; delete nwl[n];
+          g.waitlist=nwl;
+          next[authedId]=g;
+          await saveGroups(next); showToast(`✅ 已將 ${n} 遞補上正式名單`);
+        };
+        const delWait=async(n)=>{
+          if(!window.confirm(`確定從候補刪除 ${n}？`))return;
+          const next={...groups};
+          const nwl={...(next[authedId].waitlist||{})}; delete nwl[n];
+          next[authedId]={...next[authedId],waitlist:nwl};
+          await saveGroups(next); showToast(`🗑 已刪除`);
+        };
+        return(
+          <div style={{marginTop:20}}>
+            <div style={{fontWeight:700,fontSize:14,color:"#fbbf24",marginBottom:10}}>⏳ 候補名單（{wnames.length}人）</div>
+            {wnames.map((n,i)=>{
+              const j=wl[n],slotLabels=TIME_SLOTS.filter(slot=>Object.keys(j.slots||{}).some(k=>k.endsWith("-"+slot.key)));
+              return(<div key={n} style={{background:"#0e0a04",border:"1px solid #fbbf2433",borderRadius:10,padding:14,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                  <div>
+                    <span style={{...S.badge("#fbbf24")}}>#{i+1} {n}</span>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.btn("success"),padding:"6px 12px",fontSize:12}} onClick={()=>promote(n)} disabled={joinerLimit&&jnames.length>=joinerLimit}>⬆ 遞補</button>
+                    <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>delWait(n)}>🗑</button>
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:"#6b8aa8",marginTop:6,display:"flex",flexWrap:"wrap",gap:"3px 12px"}}>
+                  {j.email&&<span>📧 {j.email}</span>}
+                  {j.contact&&<span>📱 {j.contact}</span>}
+                </div>
+                {j.note&&<div style={{fontSize:12,color:"#6b8aa8",marginTop:4}}>備註：{j.note}</div>}
+                <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>{slotLabels.map(s=><span key={s.key} style={S.badge(s.color)}>{s.label}</span>)}</div>
+              </div>);
+            })}
+          </div>
+        );
+      })()}
     </div>);
   };
 
@@ -993,7 +1210,8 @@ function App() {
       if(!pw.trim()){showToast("❗ 請輸入密碼");return;}
       const d=await DB.get("app","admin");
       if(!d?.password){showToast("❌ 未設定管理員密碼");return;}
-      if(d.password!==pw){showToast("❌ 密碼錯誤");return;}
+      if(!(await matchPw(pw,d.password))){showToast("❌ 密碼錯誤");return;}
+      if(!isHash(d.password)){await DB.set("app","admin",{password:await sha256(pw)});}
       setAuthed(true);
     };
     const allIds=Object.keys(groups);
@@ -1156,9 +1374,9 @@ function App() {
 
   return(
     <div style={S.root}>
-      <div style={S.topbar}>
-        <h1 style={S.title}>🎯 JoinUp 揪團神器</h1>
-        <div style={S.nav}>
+      <div className="ju-topbar" style={S.topbar}>
+        <h1 className="ju-title" style={S.title}>🎯 JoinUp 揪團神器</h1>
+        <div className="ju-nav" style={S.nav}>
           {navItems.map(({key,label})=><button key={key} style={S.navBtn(tab===key)} onClick={()=>setTab(key)}>{label}</button>)}
           {isView&&<button style={S.navBtn(true)}>📊 活動詳情</button>}
         </div>
