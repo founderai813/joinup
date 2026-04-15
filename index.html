@@ -206,22 +206,40 @@ const exportToGCal = (title, date, timeLabel, timeRange, location) => {
 function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, otherJoiners={}, readOnly=false, countMap={}, maxCount=1, intersect={}, joiners={} }) {
   const [popup, setPopup] = useState(null);
   const [weekPage, setWeekPage] = useState(0);
-  const weeks = dates?(()=>{const w=[];for(let i=0;i<dates.length;i+=7)w.push(dates.slice(i,i+7));return w;})():null;
+  // 週一當第一天：把 dates 分成以 Mon-Sun 為欄位的週別矩陣
+  const dowMon = (d)=>{const x=new Date(d).getDay();return x===0?6:x-1;};
+  const weeks = dates?(()=>{
+    if(dates.length===0)return[];
+    const result=[]; let cur=[null,null,null,null,null,null,null]; let prevDow=-1;
+    dates.forEach((d,i)=>{
+      const dow=dowMon(d);
+      if(prevDow!==-1&&dow<=prevDow){result.push(cur);cur=[null,null,null,null,null,null,null];}
+      cur[dow]={date:d,globalDi:i};
+      prevDow=dow;
+    });
+    result.push(cur);
+    return result;
+  })():null;
   const totalWeeks = weeks?weeks.length:1;
   const pageW = weeks?weeks[weekPage]:null;
-  const diOffset = weekPage*7;
-  const cols = pageW?pageW.length:7;
+  const cols = 7;
+  // 表頭：Mon-Sun 固定欄位，活動日期填入 MM/DD
   const headers = pageW
-    ?pageW.map(d=>{const dt=new Date(d);return{top:`${dt.getMonth()+1}/${dt.getDate()}`,bot:DAYS_SHORT[dt.getDay()===0?6:dt.getDay()-1]};})
+    ?pageW.map((cell,idx)=>{
+      if(!cell)return{top:"",bot:DAYS_SHORT[idx]};
+      const dt=new Date(cell.date);
+      return{top:`${dt.getMonth()+1}/${dt.getDate()}`,bot:DAYS_SHORT[idx]};
+    })
     :DAYS_SHORT.map(d=>({top:d,bot:""}));
   const otherNames=Object.keys(otherJoiners);
   const otherCnt=(key)=>otherNames.filter(n=>otherJoiners[n].slots?.[key]).length;
-  const handleClick=(localDi,sk)=>{
-    const globalDi=dates?diOffset+localDi:localDi, key=`${globalDi}-${sk}`;
+  const handleClick=(cell,sk)=>{
+    if(!cell&&dates)return; // 空格子（非活動日期），不可點
+    const globalDi=cell?cell.globalDi:0, key=`${globalDi}-${sk}`;
     if(readOnly){
       const cnt=countMap[key]||0; if(cnt===0){setPopup(null);return;}
-      const slot=TIME_SLOTS.find(s=>s.key===sk), d=dates?dates[globalDi]:null;
-      const dateLabel=d?(()=>{const dt=new Date(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_SHORT[dt.getDay()===0?6:dt.getDay()-1]})`;})():`週${DAYS_SHORT[globalDi]}`;
+      const slot=TIME_SLOTS.find(s=>s.key===sk), d=cell?cell.date:null;
+      const dateLabel=d?(()=>{const dt=new Date(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_SHORT[dowMon(d)]})`;})():`週${DAYS_SHORT[globalDi]}`;
       const canNames=Object.keys(joiners).filter(n=>joiners[n].slots?.[key]);
       const cannotNames=Object.keys(joiners).filter(n=>!joiners[n].slots?.[key]);
       setPopup(popup?.key===key?null:{key,slot,dateLabel,canNames,cannotNames}); return;
@@ -244,16 +262,20 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
   };
   return (
     <div style={{userSelect:"none"}}>
-      {weeks&&totalWeeks>1&&(
+      {weeks&&totalWeeks>1&&(()=>{
+        const firstCell=pageW?.find(c=>c);
+        const lastCell=pageW?.slice().reverse().find(c=>c);
+        const rangeText=(firstCell?`${new Date(firstCell.date).getMonth()+1}/${new Date(firstCell.date).getDate()}`:"")+(lastCell&&lastCell!==firstCell?` ~ ${new Date(lastCell.date).getMonth()+1}/${new Date(lastCell.date).getDate()}`:"");
+        return(
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:8}}>
           <button onClick={()=>{setWeekPage(p=>Math.max(0,p-1));setPopup(null);}} disabled={weekPage===0} style={{background:"#1e2d45",border:"none",borderRadius:7,padding:"7px 14px",color:weekPage===0?"#374a5e":"#dde8f5",cursor:weekPage===0?"default":"pointer",fontWeight:700,fontSize:13,flexShrink:0}}>← 上週</button>
-          <span style={{fontSize:12,color:"#6b8aa8",textAlign:"center",lineHeight:1.5}}>第 {weekPage+1}/{totalWeeks} 週<br/><span style={{color:"#374a5e",fontSize:11}}>{pageW?.[0]?`${new Date(pageW[0]).getMonth()+1}/${new Date(pageW[0]).getDate()}`:""}{pageW?.length>1?` ~ ${new Date(pageW[pageW.length-1]).getMonth()+1}/${new Date(pageW[pageW.length-1]).getDate()}`:""}</span></span>
+          <span style={{fontSize:12,color:"#6b8aa8",textAlign:"center",lineHeight:1.5}}>第 {weekPage+1}/{totalWeeks} 週<br/><span style={{color:"#374a5e",fontSize:11}}>{rangeText}</span></span>
           <button onClick={()=>{setWeekPage(p=>Math.min(totalWeeks-1,p+1));setPopup(null);}} disabled={weekPage===totalWeeks-1} style={{background:"#1e2d45",border:"none",borderRadius:7,padding:"7px 14px",color:weekPage===totalWeeks-1?"#374a5e":"#dde8f5",cursor:weekPage===totalWeeks-1?"default":"pointer",fontWeight:700,fontSize:13,flexShrink:0}}>下週 →</button>
-        </div>
-      )}
+        </div>);
+      })()}
       <div>
         <div style={{display:"grid",gridTemplateColumns:`80px repeat(${cols},1fr)`,gap:4,marginBottom:6}}>
-          <div/>{headers.map((h,i)=><div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#6b8aa8",lineHeight:1.5}}>{h.top}{h.bot&&<><br/>{h.bot}</>}</div>)}
+          <div/>{headers.map((h,i)=><div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#6b8aa8",lineHeight:1.5}}>{h.top}<br/>{h.bot}</div>)}
         </div>
         {TIME_SLOTS.map(slot=>(
           <div key={slot.key} style={{display:"grid",gridTemplateColumns:`80px repeat(${cols},1fr)`,gap:4,marginBottom:5}}>
@@ -262,11 +284,17 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
               <span style={{fontSize:10,color:"#374a5e"}}>{slot.time}</span>
             </div>
             {Array.from({length:cols},(_,localDi)=>{
-              const globalDi=dates?diOffset+localDi:localDi,key=`${globalDi}-${slot.key}`;
+              const cell=pageW?pageW[localDi]:null;
+              const isEmpty=dates&&!cell;
+              const globalDi=cell?cell.globalDi:localDi;
+              const key=`${globalDi}-${slot.key}`;
               const isActive=popup?.key===key,cs=getCellStyle(key);
               const cnt=readOnly?(countMap[key]||0):null;
-              const displayText=readOnly?(cnt>0?`${cnt}/${maxCount}`:""):(cs.badge||"");
-              return(<div key={localDi} onClick={()=>handleClick(localDi,slot.key)} style={{height:40,borderRadius:8,background:cs.bg,border:isActive?"2px solid #fff":cs.border,cursor:"pointer",transition:"all .12s",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:isActive?"#fff":cs.text,transform:isActive?"scale(0.92)":"scale(1)"}}>{displayText}</div>);
+              const displayText=isEmpty?"":(readOnly?(cnt>0?`${cnt}/${maxCount}`:""):(cs.badge||""));
+              if(isEmpty){
+                return(<div key={localDi} style={{height:40,borderRadius:8,background:"#080d18",border:"1px dashed #1e2d45",opacity:0.4}}/>);
+              }
+              return(<div key={localDi} onClick={()=>handleClick(cell,slot.key)} style={{height:40,borderRadius:8,background:cs.bg,border:isActive?"2px solid #fff":cs.border,cursor:"pointer",transition:"all .12s",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:isActive?"#fff":cs.text,transform:isActive?"scale(0.92)":"scale(1)"}}>{displayText}</div>);
             })}
           </div>
         ))}
