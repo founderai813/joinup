@@ -1330,11 +1330,36 @@ function App() {
     };
     const group=authedId?groups[authedId]:null;
     const dates=group?getDates(group):null;
-    const saveGroupInfo=async()=>{const next={...groups,[authedId]:{...groups[authedId],...editGroup}};await saveGroups(next);showToast("✅ 已更新");};
-    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const next={...groups};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
-    const deleteJoiner=async(name)=>{const next={...groups};delete next[authedId].joiners[name];await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
+    const saveGroupInfo=async()=>{
+      // 先抓最新資料，避免覆蓋到最新的跟團者 / 候補 / 留言
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const latestGroup=latest[authedId]||groups[authedId]||{};
+      const merged={
+        ...latestGroup,
+        ...editGroup,
+        // 這些欄位一律用最新的，不用 editGroup 的舊快照
+        joiners:latestGroup.joiners||{},
+        waitlist:latestGroup.waitlist||{},
+        comments:latestGroup.comments||[],
+        organizerSlots:latestGroup.organizerSlots||editGroup.organizerSlots||{},
+      };
+      const next={...latest,[authedId]:merged};
+      await saveGroups(next);
+      setEditGroup({...merged});
+      showToast("✅ 已更新");
+    };
+    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
+    const deleteJoiner=async(name)=>{const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
     const openEditJoiner=(name)=>{const data=groups[authedId].joiners[name];setEditJoiner({name,note:data.note||""});setEditSlots({...(data.slots||{})});};
-    const saveJoiner=async()=>{const next={...groups};next[authedId].joiners[editJoiner.name]={...next[authedId].joiners[editJoiner.name],slots:editSlots,note:editJoiner.note};await saveGroups(next);setEditJoiner(null);showToast("✅ 已更新");};
+    const saveJoiner=async()=>{
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const lg=latest[authedId]; if(!lg)return;
+      const nj={...(lg.joiners||{}),[editJoiner.name]:{...(lg.joiners?.[editJoiner.name]||{}),slots:editSlots,note:editJoiner.note}};
+      const next={...latest,[authedId]:{...lg,joiners:nj}};
+      await saveGroups(next); setEditJoiner(null); showToast("✅ 已更新");
+    };
     const set=(k,v)=>setEditGroup(p=>({...p,[k]:v}));
     const [imgLoadingAdm,setImgLoadingAdm]=useState(false);
     const onPickImgAdm=async(e)=>{
@@ -1347,16 +1372,28 @@ function App() {
       finally{setImgLoadingAdm(false);}
     };
     const openEditOrgSlots=()=>{setOrgSlotsDraft({...(groups[authedId]?.organizerSlots||{})});setEditingOrgSlots(true);};
-    const saveOrgSlots=async()=>{const next={...groups,[authedId]:{...groups[authedId],organizerSlots:orgSlotsDraft}};await saveGroups(next);setEditingOrgSlots(false);showToast("✅ 已更新時段");};
+    const saveOrgSlots=async()=>{
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const latestGroup=latest[authedId]||{};
+      const next={...latest,[authedId]:{...latestGroup,organizerSlots:orgSlotsDraft}};
+      await saveGroups(next); setEditingOrgSlots(false); showToast("✅ 已更新時段");
+    };
 
     // 已成案
     const markConfirmed=async()=>{
-      const next={...groups,[authedId]:{...groups[authedId],status:"confirmed",confirmed:{...confirmedDraft,confirmedAt:Date.now()}}};
-      await saveGroups(next);setEditingConfirmed(false);showToast("✅ 已標記為成團！");
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const latestGroup=latest[authedId]||{};
+      const next={...latest,[authedId]:{...latestGroup,status:"confirmed",confirmed:{...confirmedDraft,confirmedAt:Date.now()}}};
+      await saveGroups(next); setEditingConfirmed(false); showToast("✅ 已標記為成團！");
     };
     const unmarkConfirmed=async()=>{
-      const next={...groups,[authedId]:{...groups[authedId],status:"open",confirmed:null}};
-      await saveGroups(next);showToast("✅ 已取消成團標記");
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const latestGroup=latest[authedId]||{};
+      const next={...latest,[authedId]:{...latestGroup,status:"open",confirmed:null}};
+      await saveGroups(next); showToast("✅ 已取消成團標記");
     };
 
     if(step===1)return(<div style={S.card}>
@@ -1558,19 +1595,23 @@ function App() {
         const wnames=Object.keys(wl);
         if(wnames.length===0)return null;
         const promote=async(n)=>{
-          const next={...groups};
-          const g={...next[authedId]};
-          g.joiners={...(g.joiners||{}),[n]:wl[n]};
-          const nwl={...wl}; delete nwl[n];
-          g.waitlist=nwl;
-          next[authedId]=g;
+          const latestData=await DB.get("app","groups");
+          const latest=latestData?.data||groups;
+          const lg=latest[authedId]; if(!lg)return;
+          const latestWl=lg.waitlist||{};
+          const person=latestWl[n]||wl[n];
+          const nj={...(lg.joiners||{}),[n]:person};
+          const nwl={...latestWl}; delete nwl[n];
+          const next={...latest,[authedId]:{...lg,joiners:nj,waitlist:nwl}};
           await saveGroups(next); showToast(`✅ 已將 ${n} 遞補上正式名單`);
         };
         const delWait=async(n)=>{
           if(!window.confirm(`確定從候補刪除 ${n}？`))return;
-          const next={...groups};
-          const nwl={...(next[authedId].waitlist||{})}; delete nwl[n];
-          next[authedId]={...next[authedId],waitlist:nwl};
+          const latestData=await DB.get("app","groups");
+          const latest=latestData?.data||groups;
+          const lg=latest[authedId]; if(!lg)return;
+          const nwl={...(lg.waitlist||{})}; delete nwl[n];
+          const next={...latest,[authedId]:{...lg,waitlist:nwl}};
           await saveGroups(next); showToast(`🗑 已刪除`);
         };
         return(
@@ -1617,10 +1658,18 @@ function App() {
     };
     const allIds=Object.keys(groups);
     const totalGroups=allIds.length,totalJoiners=allIds.reduce((s,id)=>s+Object.keys(groups[id].joiners||{}).length,0),totalWishes=wishes.length;
-    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const next={...groups};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
-    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const next={...groups};delete next[gid].joiners[name];await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
+    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const next={...latest};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
+    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const lg=latest[gid];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[gid]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
     const openEditJoiner=(gid,name)=>{const d=groups[gid].joiners[name];setEditJoiner({gid,name,note:d.note||""});setEditSlots({...(d.slots||{})});setSubPage("joiner-"+gid+"-"+name);};
-    const saveJoiner=async()=>{const{gid,name}=editJoiner;const next={...groups};next[gid].joiners[name]={...next[gid].joiners[name],slots:editSlots,note:editJoiner.note};await saveGroups(next);showToast("✅ 已更新");setSubPage("group-"+gid);};
+    const saveJoiner=async()=>{
+      const{gid,name}=editJoiner;
+      const latestData=await DB.get("app","groups");
+      const latest=latestData?.data||groups;
+      const lg=latest[gid]; if(!lg)return;
+      const nj={...(lg.joiners||{}),[name]:{...(lg.joiners?.[name]||{}),slots:editSlots,note:editJoiner.note}};
+      const next={...latest,[gid]:{...lg,joiners:nj}};
+      await saveGroups(next); showToast("✅ 已更新"); setSubPage("group-"+gid);
+    };
     const deleteWish=async(i)=>{await saveWishes(wishes.filter((_,j)=>j!==i));showToast("🗑 已刪除");};
     if(!authed)return(<div style={S.card}>
       <h2 style={S.sT}>🛡 網頁管理員</h2>
