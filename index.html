@@ -381,6 +381,42 @@ function App() {
     const [showGuide,setShowGuide]=useState(false);
     const [myEmail,setMyEmail]=useState("");
     const [myResults,setMyResults]=useState(null);
+    const today=new Date().toISOString().slice(0,10);
+    const isArchived=(g)=>{const end=g.confirmed?.finalDate||g.dateEnd||g.dateStart;return end&&end<today;};
+    const allIds=Object.keys(groups).filter(id=>!isArchived(groups[id]));
+    const openIds=allIds.filter(id=>groups[id].status!=="confirmed");
+    const confirmedIds=allIds.filter(id=>groups[id].status==="confirmed");
+
+    const ActivityCard=({id,g,i})=>{
+      const jc=Object.keys(g.joiners||{}).length;
+      const maxP=g.maxPeople?parseInt(g.maxPeople):null;
+      const joinerLimit=maxP?maxP-1:null;
+      const isFull=joinerLimit&&jc>=joinerLimit;
+      const isConfirmed=g.status==="confirmed";
+      return(
+        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:16,marginBottom:10,cursor:"pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
+              <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
+              {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
+              {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
+              {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
+              {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
+            </div>
+            <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
+          </div>
+          <div style={{marginTop:6,fontSize:12,color:"#8aaac8"}}>
+            👤 {g.name} &nbsp;|&nbsp; 🙋 <span style={{color:isFull?"#f87171":"#8aaac8"}}>{jc}{joinerLimit?`/${joinerLimit}`:""}人</span>
+            {g.location&&<> &nbsp;|&nbsp; 📍 {g.location}</>}{g.cost&&<> &nbsp;|&nbsp; 💰 {g.cost}</>}
+          </div>
+          {isConfirmed&&g.confirmed?.finalDate&&(
+            <div style={{marginTop:6,fontSize:12,color:"#34d399"}}>📅 確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>
+          )}
+        </div>
+      );
+    };
+
     const queryMine=()=>{
       const em=myEmail.trim().toLowerCase();
       if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}
@@ -411,7 +447,7 @@ function App() {
             <div style={{marginBottom:16}}>
               {[
                 {icon:"🚀",title:"開團中",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
-                {icon:"📋",title:"報名活動",desc:"在報名活動頁面點選活動，填寫姓名、信箱、可用時間，送出報名"},
+                {icon:"📋",title:"報名活動",desc:"在首頁或報名活動頁點選活動，填寫姓名、信箱、可用時間，送出報名"},
                 {icon:"🔐",title:"團主管理",desc:"輸入開團編號+密碼，管理跟團者、確定活動時間、標記已成團"},
                 {icon:"🛡",title:"網頁管理員",desc:"使用管理員密碼登入，查看所有活動數據、刪除違規內容"},
                 {icon:"🌟",title:"許願池",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
@@ -432,12 +468,26 @@ function App() {
         )}
       </div>
 
-      {/* 前往報名活動 */}
+      {/* 開團中活動（直接在首頁顯示） */}
       <div style={S.card}>
-        <h2 style={S.sT}>📋 報名活動</h2>
-        <p style={{fontSize:13,color:"#6b8aa8",marginBottom:10}}>瀏覽所有開團中 / 已成團的活動，立即報名參加</p>
-        <button style={{...S.btn("primary"),width:"100%"}} onClick={()=>setTab("register")}>前往報名 →</button>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+          <h2 style={{...S.sT,margin:0}}>🎪 開團中 <span style={{fontSize:13,fontWeight:400,color:"#6b8aa8"}}>({openIds.length})</span></h2>
+          <button style={{...S.btn("ghost"),padding:"6px 12px",fontSize:12}} onClick={()=>setTab("register")}>🔍 搜尋 / 更多篩選 →</button>
+        </div>
+        {openIds.length===0?(
+          <p style={{color:"#6b8aa8",fontSize:14}}>目前沒有進行中的活動，<span style={{color:"#38bdf8",cursor:"pointer",fontWeight:700}} onClick={()=>setTab("organizer")}>前往開團 →</span></p>
+        ):(
+          openIds.map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)
+        )}
       </div>
+
+      {/* 已成團 */}
+      {confirmedIds.length>0&&(
+        <div style={S.card}>
+          <h2 style={S.sT}>✅ 已成團 <span style={{fontSize:13,fontWeight:400,color:"#6b8aa8"}}>({confirmedIds.length})</span></h2>
+          {confirmedIds.map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)}
+        </div>
+      )}
 
       {/* 我參加過的活動 */}
       <div style={S.card}>
