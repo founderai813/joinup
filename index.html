@@ -233,10 +233,73 @@ function App() {
 
   // ── HOME ──
   const HomeTab=()=>{
+    const [showGuide,setShowGuide]=useState(false);
+
+    return(<div style={{padding:"0 10px"}}>
+      {/* 使用教學 */}
+      <div style={{...S.card,marginBottom:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowGuide(p=>!p)}>
+          <h2 style={{...S.sT,margin:0}}>📖 使用教學 & 注意事項</h2>
+          <span style={{color:"#38bdf8",fontSize:14}}>{showGuide?"▲ 收起":"▼ 展開"}</span>
+        </div>
+        {showGuide&&(
+          <div style={{marginTop:16}}>
+            <div style={{marginBottom:16}}>
+              {[
+                {icon:"🚀",title:"開團中",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
+                {icon:"📋",title:"報名活動",desc:"在報名活動頁面點選活動，填寫姓名、信箱、可用時間，送出報名"},
+                {icon:"🔐",title:"團主管理",desc:"輸入開團編號+密碼，管理跟團者、確定活動時間、標記已成團"},
+                {icon:"🛡",title:"網頁管理員",desc:"使用管理員密碼登入，查看所有活動數據、刪除違規內容"},
+                {icon:"🌟",title:"許願池",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
+                {icon:"📅",title:"Google Calendar",desc:"成團後開團者確定時間，所有參加者可一鍵匯出到 Google 行事曆"},
+              ].map(({icon,title,desc})=>(
+                <div key={title} style={{fontSize:13,color:"#6b8aa8",marginBottom:8,lineHeight:1.6}}>
+                  {icon} <span style={{fontWeight:700,color:"#38bdf8"}}>{title}</span>：{desc}
+                </div>
+              ))}
+            </div>
+            <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14}}>
+              <div style={{fontWeight:700,color:"#f87171",marginBottom:8,fontSize:13}}>⚠ 注意事項</div>
+              {["信箱僅供活動通知使用，不會對外公開","限定團需輸入正確的跟團密碼才能加入","同名跟團者送出後會覆蓋原本資料，請確認姓名","許願池內容為公開顯示，請勿填寫個人敏感資訊","活動資料儲存在雲端，請妥善保管開團編號與密碼"].map((t,i)=>(
+                <div key={i} style={{fontSize:12,color:"#9a6a6a",marginBottom:4}}>• {t}</div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 前往報名活動 */}
+      <div style={S.card}>
+        <h2 style={S.sT}>📋 報名活動</h2>
+        <p style={{fontSize:13,color:"#6b8aa8",marginBottom:10}}>瀏覽所有開團中 / 已成團的活動，立即報名參加</p>
+        <button style={{...S.btn("primary"),width:"100%"}} onClick={()=>setTab("register")}>前往報名 →</button>
+      </div>
+
+      {/* 許願排行 */}
+      {wishes.length>0&&(
+        <div style={S.card}>
+          <h2 style={S.sT}>🌟 許願池排行</h2>
+          <p style={{fontSize:12,color:"#6b8aa8",marginBottom:14}}>依按讚數排行，同讚數依時間先後</p>
+          {[...wishes].sort((a,b)=>(b.likes||0)-(a.likes||0)||(a.time-b.time)).slice(0,5).map((w,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <span style={{fontSize:18,fontWeight:900,color:i===0?"#fbbf24":i===1?"#9ca3af":i===2?"#b45309":"#374a5e",fontFamily:"monospace"}}>#{i+1}</span>
+                <div><div style={{fontSize:13,fontWeight:600}}>{w.content}</div><div style={{fontSize:11,color:"#374a5e",marginTop:2}}>{new Date(w.time).toLocaleDateString("zh-TW")}</div></div>
+              </div>
+              <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>❤️ {w.likes||0}</span>
+            </div>
+          ))}
+          <button style={{...S.btn("ghost"),width:"100%",marginTop:8}} onClick={()=>setTab("wish")}>查看全部許願 →</button>
+        </div>
+      )}
+    </div>);
+  };
+
+  // ── REGISTER（報名活動）──
+  const RegisterTab=()=>{
     const allIds=Object.keys(groups);
     const activeIds=allIds.filter(id=>groups[id].status!=="confirmed"||groups[id].confirmed?.allowJoin!==false);
     const confirmedIds=allIds.filter(id=>groups[id].status==="confirmed");
-    const [showGuide,setShowGuide]=useState(false);
 
     const ActivityCard=({id,g,i})=>{
       const jc=Object.keys(g.joiners||{}).length;
@@ -268,42 +331,10 @@ function App() {
     };
 
     return(<div style={{padding:"0 10px"}}>
-      {/* 使用教學 */}
-      <div style={{...S.card,marginBottom:0}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowGuide(p=>!p)}>
-          <h2 style={{...S.sT,margin:0}}>📖 使用教學 & 注意事項</h2>
-          <span style={{color:"#38bdf8",fontSize:14}}>{showGuide?"▲ 收起":"▼ 展開"}</span>
-        </div>
-        {showGuide&&(
-          <div style={{marginTop:16}}>
-            <div style={{marginBottom:16}}>
-              {[
-                {icon:"🚀",title:"開團",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
-                {icon:"🙋",title:"跟團",desc:"在活動首頁點選活動，填寫姓名、信箱、可用時間，送出跟團"},
-                {icon:"🔐",title:"開團者管理",desc:"輸入開團編號+密碼，管理跟團者、確定活動時間、標記已成團"},
-                {icon:"🛡",title:"網頁管理員",desc:"使用管理員密碼登入，查看所有活動數據、刪除違規內容"},
-                {icon:"🌟",title:"許願池",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
-                {icon:"📅",title:"Google Calendar",desc:"成團後開團者確定時間，所有參加者可一鍵匯出到 Google 行事曆"},
-              ].map(({icon,title,desc})=>(
-                             <div key={title} style={{fontSize:13,color:"#6b8aa8",marginBottom:8,lineHeight:1.6}}>
-               {icon} <span style={{fontWeight:700,color:"#38bdf8"}}>{title}</span>：{desc}
-             </div>
-              ))}
-            </div>
-            <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14}}>
-              <div style={{fontWeight:700,color:"#f87171",marginBottom:8,fontSize:13}}>⚠ 注意事項</div>
-              {["信箱僅供活動通知使用，不會對外公開","限定團需輸入正確的跟團密碼才能加入","同名跟團者送出後會覆蓋原本資料，請確認姓名","許願池內容為公開顯示，請勿填寫個人敏感資訊","活動資料儲存在雲端，請妥善保管開團編號與密碼"].map((t,i)=>(
-                <div key={i} style={{fontSize:12,color:"#9a6a6a",marginBottom:4}}>• {t}</div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* 開團中 */}
       <div style={S.card}>
         <h2 style={S.sT}>🎪 開團中</h2>
-        {activeIds.filter(id=>groups[id].status!=="confirmed").length===0&&<p style={{color:"#6b8aa8",fontSize:14}}>目前沒有進行中的活動</p>}
+        {allIds.filter(id=>groups[id].status!=="confirmed").length===0&&<p style={{color:"#6b8aa8",fontSize:14}}>目前沒有進行中的活動</p>}
         {allIds.filter(id=>groups[id].status!=="confirmed").map((id,i)=><ActivityCard key={id} id={id} g={groups[id]} i={i}/>)}
       </div>
 
@@ -315,21 +346,9 @@ function App() {
         </div>
       )}
 
-      {/* 許願排行 */}
-      {wishes.length>0&&(
+      {allIds.length===0&&(
         <div style={S.card}>
-          <h2 style={S.sT}>🌟 許願池排行</h2>
-          <p style={{fontSize:12,color:"#6b8aa8",marginBottom:14}}>依按讚數排行，同讚數依時間先後</p>
-          {[...wishes].sort((a,b)=>(b.likes||0)-(a.likes||0)||(a.time-b.time)).slice(0,5).map((w,i)=>(
-            <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:12}}>
-                <span style={{fontSize:18,fontWeight:900,color:i===0?"#fbbf24":i===1?"#9ca3af":i===2?"#b45309":"#374a5e",fontFamily:"monospace"}}>#{i+1}</span>
-                <div><div style={{fontSize:13,fontWeight:600}}>{w.content}</div><div style={{fontSize:11,color:"#374a5e",marginTop:2}}>{new Date(w.time).toLocaleDateString("zh-TW")}</div></div>
-              </div>
-              <span style={{fontSize:13,color:"#a78bfa",fontWeight:700}}>❤️ {w.likes||0}</span>
-            </div>
-          ))}
-          <button style={{...S.btn("ghost"),width:"100%",marginTop:8}} onClick={()=>setTab("wish")}>查看全部許願 →</button>
+          <p style={{color:"#6b8aa8",fontSize:14,textAlign:"center"}}>目前還沒有任何活動，<span style={{color:"#38bdf8",cursor:"pointer",fontWeight:700}} onClick={()=>setTab("organizer")}>前往開團 →</span></p>
         </div>
       )}
     </div>);
@@ -364,11 +383,11 @@ function App() {
       <div style={{background:"#1e0a0a",border:"1px solid #f8717144",borderRadius:8,padding:"10px 16px",margin:"0 auto 16px",maxWidth:360,fontSize:13,color:"#f87171"}}>⚠ 請記住管理密碼！{form.groupType==="private"&&<><br/>跟團密碼：<b>{form.joinPassword}</b></>}</div>
       <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
         <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open"});setOrganizerSlots({});}}>再開一團</button>
-        <button style={S.btn("primary")} onClick={()=>setTab("admin")}>前往管理頁面</button>
+        <button style={S.btn("primary")} onClick={()=>setTab("manage")}>前往管理頁面</button>
       </div>
     </div></div>);
     return(<div style={S.card}>
-      <h2 style={S.sT}>🚀 開團</h2>
+      <h2 style={S.sT}>🚀 開團中</h2>
       {/* 開放/限定 */}
       <div style={{marginBottom:14}}>
         <label style={S.label}>團的類型 <span style={{color:"#f87171"}}>*</span></label>
@@ -971,9 +990,18 @@ function App() {
     </div>);
   };
 
+  // ── MANAGE（團主 + 管理員合併頁）──
+  const ManageTab=()=>(
+    <div>
+      <AdminTab/>
+      <div style={{height:16}}/>
+      <SuperAdminTab/>
+    </div>
+  );
+
   const isView=tab.startsWith("view-");
   const viewGid=isView?tab.replace("view-",""):null;
-  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 開團"},{key:"admin",label:"🔐 開團者"},{key:"superadmin",label:"🛡 管理員"},{key:"wish",label:"🌟 許願池"}];
+  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 開團中"},{key:"register",label:"📋 報名活動"},{key:"wish",label:"🌟 許願池"},{key:"manage",label:"🔐 團主及管理員"}];
 
   return(
     <div style={S.root}>
@@ -988,8 +1016,8 @@ function App() {
         {loading&&<div style={{textAlign:"center",padding:40,color:"#374a5e"}}>載入中…</div>}
         {!loading&&tab==="home"&&<HomeTab/>}
         {!loading&&tab==="organizer"&&<OrganizerTab/>}
-        {!loading&&tab==="admin"&&<AdminTab/>}
-        {!loading&&tab==="superadmin"&&<SuperAdminTab/>}
+        {!loading&&tab==="register"&&<RegisterTab/>}
+        {!loading&&tab==="manage"&&<ManageTab/>}
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
