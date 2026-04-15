@@ -81,14 +81,31 @@ const TIME_SLOTS = [
   { key:"evening",   label:"晚上", time:"19:00–21:00", color:"#38bdf8" },
 ];
 const CATEGORIES = [
-  { key:"food",    label:"🍽 聚餐", color:"#f97316" },
-  { key:"sport",   label:"🏃 運動", color:"#34d399" },
-  { key:"travel",  label:"✈️ 旅遊", color:"#38bdf8" },
-  { key:"game",    label:"🎲 桌遊", color:"#a78bfa" },
-  { key:"study",   label:"📚 學習", color:"#fbbf24" },
-  { key:"other",   label:"📌 其他", color:"#6b8aa8" },
+  { key:"food",      label:"🍽 聚餐",        color:"#f97316" },
+  { key:"cafe",      label:"☕ 咖啡下午茶",   color:"#d97706" },
+  { key:"nightlife", label:"🍻 夜生活酒吧",   color:"#7c3aed" },
+  { key:"sport",     label:"🏃 運動",        color:"#34d399" },
+  { key:"outdoor",   label:"🏞 戶外",        color:"#10b981" },
+  { key:"travel",    label:"✈️ 旅遊",        color:"#38bdf8" },
+  { key:"game",      label:"🎲 桌遊",        color:"#a78bfa" },
+  { key:"esport",    label:"🎮 電玩",        color:"#ec4899" },
+  { key:"movie",     label:"🎬 電影",        color:"#dc2626" },
+  { key:"ktv",       label:"🎤 KTV",         color:"#f43f5e" },
+  { key:"music",     label:"🎵 音樂活動",     color:"#8b5cf6" },
+  { key:"art",       label:"🎭 藝文展覽",     color:"#c084fc" },
+  { key:"study",     label:"📚 學習讀書",     color:"#fbbf24" },
+  { key:"work",      label:"💼 工作商務",     color:"#64748b" },
+  { key:"shopping",  label:"🛍 購物",        color:"#f472b6" },
+  { key:"party",     label:"🎉 派對",        color:"#facc15" },
+  { key:"photo",     label:"📸 拍照",        color:"#22d3ee" },
+  { key:"pet",       label:"🐾 寵物",        color:"#a3e635" },
+  { key:"diy",       label:"🛠 手作 DIY",    color:"#fb923c" },
+  { key:"family",    label:"👨‍👩‍👧 親子",      color:"#fde047" },
+  { key:"date",      label:"💕 約會",        color:"#fb7185" },
+  { key:"volunteer", label:"🤝 志工公益",     color:"#4ade80" },
+  { key:"other",     label:"📌 其他",        color:"#6b8aa8" },
 ];
-const getCategory=(k)=>CATEGORIES.find(c=>c.key===k)||CATEGORIES[5];
+const getCategory=(k)=>CATEGORIES.find(c=>c.key===k)||CATEGORIES[CATEGORIES.length-1];
 // 密碼 Hash (SHA-256)
 const sha256=async(text)=>{
   try{
@@ -426,6 +443,39 @@ function App() {
   const F=({label,required,hint,children})=>(
     <div><label style={S.label}>{label}{required&&<span style={{color:"#f87171"}}> *</span>}{hint&&<span style={{fontSize:10,color:"#374a5e",fontWeight:400,marginLeft:6,textTransform:"none"}}>{hint}</span>}</label>{children}</div>
   );
+
+  // 日期輸入：可手動打字、可點 📅 開原生選擇器
+  const DateInput=({value,onChange,min})=>{
+    const dref=useRef(null);
+    const safe=/^\d{4}-\d{2}-\d{2}$/.test(value||"")?value:"";
+    return(
+      <div style={{position:"relative"}}>
+        <input
+          type="text"
+          inputMode="numeric"
+          style={{...S.input,paddingRight:44}}
+          placeholder="例：2025-05-20 或 2025/5/20"
+          value={value||""}
+          onChange={e=>{
+            let v=e.target.value.trim().replace(/[\/.]/g,"-");
+            const m=v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+            if(m)v=`${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+            onChange(v);
+          }}
+        />
+        <input
+          ref={dref}
+          type="date"
+          value={safe}
+          min={min||undefined}
+          onChange={e=>onChange(e.target.value)}
+          style={{position:"absolute",right:0,top:0,bottom:0,width:42,opacity:0,cursor:"pointer",border:"none",background:"transparent"}}
+          onClick={()=>{try{dref.current?.showPicker?.();}catch{}}}
+        />
+        <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:18,pointerEvents:"none"}}>📅</span>
+      </div>
+    );
+  };
 
   // ── HOME ──
   const HomeTab=()=>{
@@ -796,8 +846,8 @@ function App() {
         <F label="聯絡方式" hint="選填，如 IG、Line ID"><input style={S.input} placeholder="例：@instagram_id" value={form.contact} onChange={e=>set("contact",e.target.value)}/></F>
       </div>
       <div style={S.g2}>
-        <F label="活動開始日期"><input type="date" style={S.input} value={form.dateStart} onChange={e=>set("dateStart",e.target.value)}/></F>
-        <F label="活動結束日期"><input type="date" style={S.input} value={form.dateEnd} min={form.dateStart} onChange={e=>set("dateEnd",e.target.value)}/></F>
+        <F label="活動開始日期"><DateInput value={form.dateStart} onChange={v=>set("dateStart",v)}/></F>
+        <F label="活動結束日期"><DateInput value={form.dateEnd} min={form.dateStart} onChange={v=>set("dateEnd",v)}/></F>
       </div>
       <div style={S.g3}>
         <F label="預計時數"><input type="number" style={S.input} placeholder="例：3" min={0} value={form.hours} onChange={e=>set("hours",e.target.value)}/></F>
@@ -1339,7 +1389,7 @@ function App() {
     // 確定時間編輯
     if(editingConfirmed)return(<div style={S.card}>
       <h2 style={S.sT}>✅ 設定確定活動資訊</h2>
-      <div style={{marginBottom:14}}><F label="確定日期" required><input type="date" style={S.input} value={confirmedDraft.finalDate} onChange={e=>setConfirmedDraft(p=>({...p,finalDate:e.target.value}))}/></F></div>
+      <div style={{marginBottom:14}}><F label="確定日期" required><DateInput value={confirmedDraft.finalDate} onChange={v=>setConfirmedDraft(p=>({...p,finalDate:v}))}/></F></div>
       <div style={{marginBottom:14}}>
         <label style={S.label}>確定時段 <span style={{color:"#f87171"}}>*</span></label>
         <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
@@ -1442,7 +1492,7 @@ function App() {
           </div>
         </div>
         <div style={S.g2}><F label="信箱" hint="僅供通知"><input type="email" style={S.input} value={editGroup?.email||""} onChange={e=>set("email",e.target.value)}/></F><F label="聯絡方式"><input style={S.input} value={editGroup?.contact||""} onChange={e=>set("contact",e.target.value)}/></F></div>
-        <div style={S.g2}><F label="開始日期"><input type="date" style={S.input} value={editGroup?.dateStart||""} onChange={e=>set("dateStart",e.target.value)}/></F><F label="結束日期"><input type="date" style={S.input} value={editGroup?.dateEnd||""} onChange={e=>set("dateEnd",e.target.value)}/></F></div>
+        <div style={S.g2}><F label="開始日期"><DateInput value={editGroup?.dateStart||""} onChange={v=>set("dateStart",v)}/></F><F label="結束日期"><DateInput value={editGroup?.dateEnd||""} min={editGroup?.dateStart} onChange={v=>set("dateEnd",v)}/></F></div>
         <div style={S.g3}><F label="時數"><input type="number" style={S.input} value={editGroup?.hours||""} onChange={e=>set("hours",e.target.value)}/></F><F label="費用"><input style={S.input} value={editGroup?.cost||""} onChange={e=>set("cost",e.target.value)}/></F><F label="人數上限"><input type="number" style={S.input} value={editGroup?.maxPeople||""} onChange={e=>set("maxPeople",e.target.value)}/></F></div>
         <div style={{marginBottom:14}}><F label="地點"><input style={S.input} value={editGroup?.location||""} onChange={e=>set("location",e.target.value)}/></F></div>
         <F label="說明"><textarea style={S.textarea} value={editGroup?.description||""} onChange={e=>set("description",e.target.value)}/></F>
