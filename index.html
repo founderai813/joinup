@@ -381,6 +381,13 @@ function App() {
   };
   const [toast, setToast] = useState("");
   const [template, setTemplate] = useState(null);
+  // 開團表單狀態放在 App 層級，避免 showToast 觸發 App 重渲染時 OrganizerTab 被 remount 導致資料遺失
+  const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""});
+  const [orgForm,setOrgForm]=useState(initForm);
+  const [orgSlots,setOrgSlots]=useState({});
+  const [orgDone,setOrgDone]=useState(null);
+  const [orgIdErr,setOrgIdErr]=useState("");
+  const [orgImgLoading,setOrgImgLoading]=useState(false);
   const [groups, setGroups] = useState({});
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -758,26 +765,29 @@ function App() {
 
   // ── ORGANIZER ──
   const OrganizerTab=()=>{
-    const [form,setForm]=useState(()=>{
-      const base={id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""};
+    // 使用 App 層的狀態，避免 showToast 觸發 remount 而遺失表單
+    const form=orgForm, setForm=setOrgForm;
+    const organizerSlots=orgSlots, setOrganizerSlots=setOrgSlots;
+    const done=orgDone, setDone=setOrgDone;
+    const idErr=orgIdErr, setIdErr=setOrgIdErr;
+    const imgLoading=orgImgLoading, setImgLoading=setOrgImgLoading;
+    useEffect(()=>{
       if(template){
         const t=template;
-        return{...base,name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""};
+        setOrgForm({...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""});
+        setOrgSlots({});
+        setOrgDone(null);
+        setOrgIdErr("");
+        setTemplate(null);
       }
-      return base;
-    });
-    useEffect(()=>{if(template)setTemplate(null);},[]);
-    const [organizerSlots,setOrganizerSlots]=useState({});
-    const [done,setDone]=useState(null);
-    const [idErr,setIdErr]=useState("");
-    const [imgLoading,setImgLoading]=useState(false);
+    },[]);
     const set=(k,v)=>setForm(p=>({...p,[k]:v}));
     const onPickImage=async(e)=>{
       const file=e.target.files?.[0]; e.target.value="";
       if(!file)return;
       if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
       setImgLoading(true);
-      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl); showToast("🖼 圖片已加入");}
+      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl);}
       catch{showToast("❌ 圖片處理失敗");}
       finally{setImgLoading(false);}
     };
@@ -804,7 +814,7 @@ function App() {
       <div style={{fontSize:32,fontWeight:900,color:"#38bdf8",letterSpacing:4,fontFamily:"monospace",margin:"10px 0"}}>{done}</div>
       <div style={{background:"#1e0a0a",border:"1px solid #f8717144",borderRadius:8,padding:"10px 16px",margin:"0 auto 16px",maxWidth:360,fontSize:13,color:"#f87171"}}>⚠ 請記住管理密碼！{form.groupType==="private"&&<><br/>跟團密碼：<b>{form.joinPassword}</b></>}</div>
       <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
-        <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"});setOrganizerSlots({});}}>再開一團</button>
+        <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm(initForm());setOrganizerSlots({});setIdErr("");}}>再開一團</button>
         <button style={S.btn("primary")} onClick={()=>setTab("manage")}>前往管理頁面</button>
       </div>
     </div></div>);
