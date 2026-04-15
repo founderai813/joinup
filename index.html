@@ -650,20 +650,6 @@ function App() {
         </div>
         {group.description&&<p style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>{group.description}</p>}
 
-        {/* 費用分攤計算 */}
-        {group.cost&&(()=>{
-          const n=parseInt(String(group.cost).replace(/[^\d]/g,""));
-          const totalPeople=1+Object.keys(group.joiners||{}).length;
-          if(!n||totalPeople<1)return null;
-          const per=Math.ceil(n/totalPeople);
-          return(
-            <div style={{background:"#080d18",border:"1px solid #fbbf2433",borderRadius:10,padding:12,marginBottom:10}}>
-              <div style={{fontSize:12,color:"#fbbf24",fontWeight:700,marginBottom:4}}>💰 費用分攤試算</div>
-              <div style={{fontSize:12,color:"#6b8aa8"}}>總費用 NT${n} ÷ 目前 {totalPeople} 人 = <span style={{color:"#fbbf24",fontWeight:700}}>每人約 NT${per}</span></div>
-            </div>
-          );
-        })()}
-
         {/* 已成團：確定資訊 + 匯出 */}
         {isConfirmed&&group.confirmed?.finalDate&&(
           <div style={{background:"#0a1f0a",border:"1px solid #34d39944",borderRadius:10,padding:14,marginBottom:10}}>
@@ -921,6 +907,20 @@ function App() {
         </div>
         <button style={S.btn("primary")} onClick={openEditOrgSlots}>✏️ 修改時段</button>
       </div>
+
+      {/* 費用分攤試算（僅主揪可見） */}
+      {group?.cost&&(()=>{
+        const n=parseInt(String(group.cost).replace(/[^\d]/g,""));
+        const totalPeople=1+jnames.length;
+        if(!n||totalPeople<1)return null;
+        const per=Math.ceil(n/totalPeople);
+        return(
+          <div style={{background:"#080d18",border:"1px solid #fbbf2433",borderRadius:10,padding:14,marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:14,color:"#fbbf24",marginBottom:4}}>💰 費用分攤試算 <span style={{fontSize:11,fontWeight:400,color:"#6b8aa8"}}>（僅主揪可見）</span></div>
+            <div style={{fontSize:12,color:"#6b8aa8"}}>總費用 NT${n} ÷ 目前 {totalPeople} 人 = <span style={{color:"#fbbf24",fontWeight:700,fontSize:14}}>每人約 NT${per}</span></div>
+          </div>
+        );
+      })()}
 
       {/* 活動資訊編輯 */}
       <div style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:16,marginBottom:16}}>
