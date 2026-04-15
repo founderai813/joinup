@@ -9,9 +9,21 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="JoinUp"/>
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="JoinUp 揪團神器"/>
+<meta property="og:description" content="開團、跟團、找出共同空閒時間，一鍵匯入 Google Calendar"/>
+<meta property="og:image" content="https://joinup.futurestarai.com/og-image.svg"/>
+<meta property="og:url" content="https://joinup.futurestarai.com"/>
+<meta property="og:site_name" content="JoinUp"/>
+<meta property="og:locale" content="zh_TW"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="JoinUp 揪團神器"/>
+<meta name="twitter:description" content="開團、跟團、找出共同空閒時間"/>
+<meta name="twitter:image" content="https://joinup.futurestarai.com/og-image.svg"/>
 <link rel="manifest" href="manifest.webmanifest"/>
 <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23080d18'/><text x='50' y='70' font-size='60' text-anchor='middle'>🎯</text></svg>"/>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -91,6 +103,35 @@ const matchPw=async(input,stored)=>{
   if(isHash(stored)) return (await sha256(input))===stored;
   return input===stored;
 };
+// 分享工具
+const buildShareUrl=(gid)=>`${location.origin}${location.pathname}?a=${encodeURIComponent(gid)}`;
+const buildShareText=(g,url)=>{
+  const cat=g.category?(({food:"🍽",sport:"🏃",travel:"✈️",game:"🎲",study:"📚",other:"📌"})[g.category]||"📌"):"";
+  const d=g.confirmed?.finalDate||g.dateStart;
+  return `${cat?cat+" ":""}${g.activityName||"揪團"}${d?" · "+d:""}${g.location?" · "+g.location:""}\n${url}`;
+};
+const copyToClipboard=async(text)=>{
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch{
+    try{
+      const ta=document.createElement("textarea");
+      ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+      document.body.appendChild(ta); ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return true;
+    }catch{return false;}
+  }
+};
+const shareTargets=(url,text,title)=>({
+  line:     `https://line.me/R/msg/text/?${encodeURIComponent(text)}`,
+  fb:       `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+  twitter:  `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
+  threads:  `https://www.threads.net/intent/post?text=${encodeURIComponent(text)}`,
+  whatsapp: `https://wa.me/?text=${encodeURIComponent(text)}`,
+  telegram: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title||"")}`,
+  email:    `mailto:?subject=${encodeURIComponent(title||"分享活動")}&body=${encodeURIComponent(text)}`,
+});
 // CSV 匯出工具
 const downloadCSV=(filename,rows)=>{
   const csv=rows.map(r=>r.map(c=>{
@@ -255,7 +296,21 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
 
 // ── App ──
 function App() {
-  const [tab, setTab] = useState("home");
+  // 初始化 tab：從 URL ?a=xxx 讀取，預設 home
+  const initialTab=(()=>{try{const p=new URLSearchParams(location.search);const a=p.get("a");return a?"view-"+a:"home";}catch{return "home";}})();
+  const [tab, setTabRaw] = useState(initialTab);
+  const setTab = (t)=>{
+    setTabRaw(t);
+    try{
+      const url=new URL(location.href);
+      if(typeof t==="string"&&t.startsWith("view-")){
+        url.searchParams.set("a",t.replace("view-",""));
+      }else{
+        url.searchParams.delete("a");
+      }
+      history.replaceState({},"",url.toString());
+    }catch{}
+  };
   const [toast, setToast] = useState("");
   const [template, setTemplate] = useState(null);
   const [groups, setGroups] = useState({});
@@ -882,9 +937,141 @@ function App() {
         </div>
       )}
 
+      {/* 分享活動 */}
+      <SharePanel gid={gid} group={group}/>
+
       {/* 留言板 */}
       <CommentBoard gid={gid} group={group}/>
     </div>);
+  };
+
+  // ── SharePanel ──
+  const SharePanel=({gid,group})=>{
+    const [open,setOpen]=useState(false);
+    const [qrUrl,setQrUrl]=useState("");
+    const url=buildShareUrl(gid);
+    const title=group?.activityName||"揪團";
+    const text=buildShareText(group,url);
+    const targets=shareTargets(url,text,title);
+    const doNativeShare=async()=>{
+      if(navigator.share){
+        try{await navigator.share({title,text,url});}catch{}
+      }else{
+        const ok=await copyToClipboard(url);
+        showToast(ok?"📋 已複製連結":"❌ 複製失敗");
+      }
+    };
+    const openTarget=(u)=>window.open(u,"_blank","noopener,noreferrer");
+    const genQR=async()=>{
+      if(!window.QRCode){showToast("❌ QR 套件載入中…");return;}
+      try{
+        const dataUrl=await QRCode.toDataURL(url,{width:480,margin:2,color:{dark:"#080d18",light:"#ffffff"}});
+        setQrUrl(dataUrl);
+      }catch{showToast("❌ QR 產生失敗");}
+    };
+    // 產生 IG Stories 圖卡 (1080x1920)
+    const makeStoryCard=async()=>{
+      if(!window.QRCode){showToast("❌ QR 套件載入中…");return;}
+      try{
+        const qrData=await QRCode.toDataURL(url,{width:640,margin:2,color:{dark:"#080d18",light:"#ffffff"}});
+        const img=new Image();
+        img.onload=()=>{
+          const c=document.createElement("canvas");
+          c.width=1080; c.height=1920;
+          const ctx=c.getContext("2d");
+          // 背景漸層
+          const grad=ctx.createLinearGradient(0,0,1080,1920);
+          grad.addColorStop(0,"#080d18"); grad.addColorStop(1,"#0f1729");
+          ctx.fillStyle=grad; ctx.fillRect(0,0,1080,1920);
+          // 裝飾光暈
+          ctx.fillStyle="rgba(56,189,248,0.08)";
+          ctx.beginPath(); ctx.arc(900,300,260,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle="rgba(167,139,250,0.08)";
+          ctx.beginPath(); ctx.arc(180,1600,300,0,Math.PI*2); ctx.fill();
+          // 標題
+          ctx.fillStyle="#38bdf8"; ctx.font="900 90px system-ui,sans-serif"; ctx.textAlign="center";
+          ctx.fillText("🎯 JoinUp",540,260);
+          ctx.fillStyle="#dde8f5"; ctx.font="700 60px system-ui,sans-serif";
+          ctx.fillText("揪團中 · 來加入！",540,360);
+          // 卡片背景
+          ctx.fillStyle="rgba(8,13,24,0.6)";
+          ctx.strokeStyle="#38bdf8"; ctx.lineWidth=4;
+          const cx=90,cy=460,cw=900,ch=520;
+          if(ctx.roundRect){ctx.beginPath();ctx.roundRect(cx,cy,cw,ch,30);ctx.fill();ctx.stroke();}
+          else{ctx.fillRect(cx,cy,cw,ch);ctx.strokeRect(cx,cy,cw,ch);}
+          // 活動名稱
+          ctx.fillStyle="#dde8f5"; ctx.font="800 62px system-ui,sans-serif"; ctx.textAlign="center";
+          const name=(group.activityName||"揪團活動").slice(0,14);
+          ctx.fillText(name,540,590);
+          // 活動資訊
+          ctx.fillStyle="#8aaac8"; ctx.font="400 38px system-ui,sans-serif";
+          const date=group.confirmed?.finalDate||group.dateStart||"";
+          if(date) ctx.fillText("📅 "+date,540,680);
+          if(group.location) ctx.fillText("📍 "+group.location.slice(0,18),540,750);
+          if(group.name) ctx.fillText("👤 主揪："+group.name,540,820);
+          if(group.maxPeople) ctx.fillText("👥 上限 "+group.maxPeople+" 人",540,890);
+          // QR Code
+          ctx.fillStyle="#ffffff";
+          if(ctx.roundRect){ctx.beginPath();ctx.roundRect(340,1080,400,400,20);ctx.fill();}
+          else ctx.fillRect(340,1080,400,400);
+          ctx.drawImage(img,360,1100,360,360);
+          ctx.fillStyle="#bae6fd"; ctx.font="600 36px system-ui,sans-serif"; ctx.textAlign="center";
+          ctx.fillText("👉 掃 QR Code 加入揪團",540,1560);
+          // 底部網址
+          ctx.fillStyle="#38bdf8"; ctx.font="700 34px system-ui,sans-serif";
+          ctx.fillText("joinup.futurestarai.com",540,1820);
+          // 下載
+          const link=document.createElement("a");
+          link.href=c.toDataURL("image/png");
+          link.download=`JoinUp_${gid}_story.png`;
+          document.body.appendChild(link); link.click();
+          setTimeout(()=>document.body.removeChild(link),100);
+          showToast("🖼 已下載 IG Stories 圖卡！");
+        };
+        img.onerror=()=>showToast("❌ QR 圖載入失敗");
+        img.src=qrData;
+      }catch{showToast("❌ 圖卡產生失敗");}
+    };
+    const btn=(bg,label,onClick)=>(
+      <button onClick={onClick} style={{padding:"10px 14px",borderRadius:10,border:"none",background:bg,color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",flex:"1 1 auto",minWidth:120}}>{label}</button>
+    );
+    return(
+      <div style={S.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setOpen(p=>!p)}>
+          <h3 style={{...S.sT,margin:0}}>📤 分享活動</h3>
+          <span style={{color:"#38bdf8",fontSize:14}}>{open?"▲ 收起":"▼ 展開"}</span>
+        </div>
+        {open&&(
+          <div style={{marginTop:14}}>
+            <button style={{...S.btn("primary"),width:"100%",marginBottom:12}} onClick={doNativeShare}>📱 手機一鍵分享（IG / LINE / FB…）</button>
+            <div style={{fontSize:11,color:"#6b8aa8",marginBottom:10}}>桌機使用者請選下方按鈕：</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+              {btn("#06C755","💚 LINE",()=>openTarget(targets.line))}
+              {btn("#1877F2","📘 Facebook",()=>openTarget(targets.fb))}
+              {btn("#000000","🐦 Twitter / X",()=>openTarget(targets.twitter))}
+              {btn("#000000","🧵 Threads",()=>openTarget(targets.threads))}
+              {btn("#25D366","💬 WhatsApp",()=>openTarget(targets.whatsapp))}
+              {btn("#0088CC","✈️ Telegram",()=>openTarget(targets.telegram))}
+              {btn("#6b8aa8","📧 Email",()=>openTarget(targets.email))}
+              {btn("#38bdf8","📋 複製連結",async()=>{const ok=await copyToClipboard(url);showToast(ok?"📋 已複製！":"❌ 複製失敗");})}
+            </div>
+            <hr style={S.hr}/>
+            <div style={{fontWeight:700,fontSize:13,color:"#a78bfa",marginBottom:10}}>🎨 Instagram 專屬</div>
+            <div style={{fontSize:11,color:"#6b8aa8",marginBottom:10}}>IG 不支援直接分享連結，可下載圖卡貼到 IG Stories / Post</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+              {btn("#E1306C","📸 下載 IG Stories 圖卡",makeStoryCard)}
+              {btn("#6b8aa8","🔲 只看 QR Code",genQR)}
+            </div>
+            {qrUrl&&(
+              <div style={{textAlign:"center",marginTop:14,background:"#fff",padding:16,borderRadius:12}}>
+                <img src={qrUrl} alt="QR" style={{width:220,height:220,display:"block",margin:"0 auto"}}/>
+                <div style={{fontSize:11,color:"#080d18",marginTop:8,fontWeight:600}}>掃 QR Code 進入活動</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // ── 留言板 ──
