@@ -103,6 +103,29 @@ const matchPw=async(input,stored)=>{
   if(isHash(stored)) return (await sha256(input))===stored;
   return input===stored;
 };
+// 圖片壓縮為 base64（預設最大邊 800px、JPEG q 0.72，約 30~80KB）
+const compressImage=(file,maxW=800,quality=0.72)=>new Promise((resolve,reject)=>{
+  if(!file)return reject(new Error("no file"));
+  if(!file.type.startsWith("image/"))return reject(new Error("not image"));
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(1,maxW/img.width,maxW/img.height);
+      const w=Math.round(img.width*scale),h=Math.round(img.height*scale);
+      const c=document.createElement("canvas");
+      c.width=w; c.height=h;
+      const ctx=c.getContext("2d");
+      ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+      resolve(c.toDataURL("image/jpeg",quality));
+    };
+    img.onerror=()=>reject(new Error("image load failed"));
+    img.src=e.target.result;
+  };
+  reader.onerror=()=>reject(new Error("read failed"));
+  reader.readAsDataURL(file);
+});
 // 分享工具
 const buildShareUrl=(gid)=>`${location.origin}${location.pathname}?a=${encodeURIComponent(gid)}`;
 const buildShareText=(g,url)=>{
@@ -422,25 +445,30 @@ function App() {
       const isFull=joinerLimit&&jc>=joinerLimit;
       const isConfirmed=g.status==="confirmed";
       return(
-        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:16,marginBottom:10,cursor:"pointer"}}>
-          <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
-              <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
-              {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
-              {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
-              {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
-              {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
-            </div>
-            <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
-          </div>
-          <div style={{marginTop:6,fontSize:12,color:"#8aaac8"}}>
-            👤 {g.name} &nbsp;|&nbsp; 🙋 <span style={{color:isFull?"#f87171":"#8aaac8"}}>{jc}{joinerLimit?`/${joinerLimit}`:""}人</span>
-            {g.location&&<> &nbsp;|&nbsp; 📍 {g.location}</>}{g.cost&&<> &nbsp;|&nbsp; 💰 {g.cost}</>}
-          </div>
-          {isConfirmed&&g.confirmed?.finalDate&&(
-            <div style={{marginTop:6,fontSize:12,color:"#34d399"}}>📅 確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>
+        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+          {g.image&&(
+            <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
           )}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
+                <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
+                {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
+                {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
+                {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
+                {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
+              </div>
+              <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
+            </div>
+            <div style={{marginTop:6,fontSize:12,color:"#8aaac8"}}>
+              👤 {g.name} &nbsp;|&nbsp; 🙋 <span style={{color:isFull?"#f87171":"#8aaac8"}}>{jc}{joinerLimit?`/${joinerLimit}`:""}人</span>
+              {g.location&&<> &nbsp;|&nbsp; 📍 {g.location}</>}{g.cost&&<> &nbsp;|&nbsp; 💰 {g.cost}</>}
+            </div>
+            {isConfirmed&&g.confirmed?.finalDate&&(
+              <div style={{marginTop:6,fontSize:12,color:"#34d399"}}>📅 確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>
+            )}
+          </div>
         </div>
       );
     };
@@ -601,25 +629,30 @@ function App() {
       const isFull=joinerLimit&&jc>=joinerLimit;
       const isConfirmed=g.status==="confirmed";
       return(
-        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:16,marginBottom:10,cursor:"pointer"}}>
-          <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
-              <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
-              {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
-              {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
-              {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
-              {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
-            </div>
-            <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
-          </div>
-          <div style={{marginTop:6,fontSize:12,color:"#8aaac8"}}>
-            👤 {g.name} &nbsp;|&nbsp; 🙋 <span style={{color:isFull?"#f87171":"#8aaac8"}}>{jc}{joinerLimit?`/${joinerLimit}`:""}人</span>
-            {g.location&&<> &nbsp;|&nbsp; 📍 {g.location}</>}{g.cost&&<> &nbsp;|&nbsp; 💰 {g.cost}</>}
-          </div>
-          {isConfirmed&&g.confirmed?.finalDate&&(
-            <div style={{marginTop:6,fontSize:12,color:"#34d399"}}>📅 確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>
+        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+          {g.image&&(
+            <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
           )}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
+                <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
+                {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
+                {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
+                {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
+                {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
+              </div>
+              <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
+            </div>
+            <div style={{marginTop:6,fontSize:12,color:"#8aaac8"}}>
+              👤 {g.name} &nbsp;|&nbsp; 🙋 <span style={{color:isFull?"#f87171":"#8aaac8"}}>{jc}{joinerLimit?`/${joinerLimit}`:""}人</span>
+              {g.location&&<> &nbsp;|&nbsp; 📍 {g.location}</>}{g.cost&&<> &nbsp;|&nbsp; 💰 {g.cost}</>}
+            </div>
+            {isConfirmed&&g.confirmed?.finalDate&&(
+              <div style={{marginTop:6,fontSize:12,color:"#34d399"}}>📅 確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>
+            )}
+          </div>
         </div>
       );
     };
@@ -676,10 +709,10 @@ function App() {
   // ── ORGANIZER ──
   const OrganizerTab=()=>{
     const [form,setForm]=useState(()=>{
-      const base={id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other"};
+      const base={id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""};
       if(template){
         const t=template;
-        return{...base,name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other"};
+        return{...base,name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""};
       }
       return base;
     });
@@ -687,7 +720,17 @@ function App() {
     const [organizerSlots,setOrganizerSlots]=useState({});
     const [done,setDone]=useState(null);
     const [idErr,setIdErr]=useState("");
+    const [imgLoading,setImgLoading]=useState(false);
     const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+    const onPickImage=async(e)=>{
+      const file=e.target.files?.[0]; e.target.value="";
+      if(!file)return;
+      if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
+      setImgLoading(true);
+      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl); showToast("🖼 圖片已加入");}
+      catch{showToast("❌ 圖片處理失敗");}
+      finally{setImgLoading(false);}
+    };
     const submit=async()=>{
       if(!form.id.trim()){showToast("❗ 請填寫開團編號");return;}
       if(!form.password.trim()){showToast("❗ 請設定管理密碼");return;}
@@ -763,6 +806,21 @@ function App() {
       </div>
       <div style={{marginBottom:14}}><F label="活動地點"><input style={S.input} placeholder="例：台北市信義區" value={form.location} onChange={e=>set("location",e.target.value)}/></F></div>
       <F label="活動說明"><textarea style={S.textarea} placeholder="詳細描述活動…" value={form.description} onChange={e=>set("description",e.target.value)}/></F>
+      <div style={{marginTop:14}}>
+        <label style={S.label}>示意圖（選填）</label>
+        {form.image?(
+          <div style={{position:"relative",marginBottom:8}}>
+            <img src={form.image} alt="示意圖" style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45"}}/>
+            <button type="button" onClick={()=>set("image","")} style={{position:"absolute",top:8,right:8,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 移除</button>
+          </div>
+        ):(
+          <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"20px 14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
+            {imgLoading?"⏳ 處理中…":"📷 點此上傳活動示意圖"}
+            <input type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
+          </label>
+        )}
+        <div style={{fontSize:11,color:"#374a5e",marginTop:4}}>自動壓縮最長邊 900px，建議 &lt; 10MB</div>
+      </div>
       <div style={{height:20}}/>
       <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:12,padding:16}}>
         <div style={{fontWeight:700,fontSize:14,color:"#38bdf8",marginBottom:4}}>📅 主揪可以的時間 <span style={{fontSize:11,color:"#374a5e",fontWeight:400}}>(選填)</span></div>
@@ -873,6 +931,11 @@ function App() {
     return(<div style={{margin:"16px 10px"}}>
       {/* 活動資訊卡 */}
       <div style={S.card}>
+        {group.image&&(
+          <div style={{marginBottom:14,marginTop:-6}}>
+            <img src={group.image} alt={group.activityName} style={{width:"100%",maxHeight:360,objectFit:"cover",borderRadius:12,border:"1px solid #1e2d45"}}/>
+          </div>
+        )}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             <h2 style={{...S.sT,margin:0}}>{group.activityName}</h2>
@@ -1223,6 +1286,16 @@ function App() {
     const openEditJoiner=(name)=>{const data=groups[authedId].joiners[name];setEditJoiner({name,note:data.note||""});setEditSlots({...(data.slots||{})});};
     const saveJoiner=async()=>{const next={...groups};next[authedId].joiners[editJoiner.name]={...next[authedId].joiners[editJoiner.name],slots:editSlots,note:editJoiner.note};await saveGroups(next);setEditJoiner(null);showToast("✅ 已更新");};
     const set=(k,v)=>setEditGroup(p=>({...p,[k]:v}));
+    const [imgLoadingAdm,setImgLoadingAdm]=useState(false);
+    const onPickImgAdm=async(e)=>{
+      const file=e.target.files?.[0]; e.target.value="";
+      if(!file)return;
+      if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
+      setImgLoadingAdm(true);
+      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl); showToast("🖼 已更換圖片，記得按儲存");}
+      catch{showToast("❌ 圖片處理失敗");}
+      finally{setImgLoadingAdm(false);}
+    };
     const openEditOrgSlots=()=>{setOrgSlotsDraft({...(groups[authedId]?.organizerSlots||{})});setEditingOrgSlots(true);};
     const saveOrgSlots=async()=>{const next={...groups,[authedId]:{...groups[authedId],organizerSlots:orgSlotsDraft}};await saveGroups(next);setEditingOrgSlots(false);showToast("✅ 已更新時段");};
 
@@ -1373,6 +1446,19 @@ function App() {
         <div style={S.g3}><F label="時數"><input type="number" style={S.input} value={editGroup?.hours||""} onChange={e=>set("hours",e.target.value)}/></F><F label="費用"><input style={S.input} value={editGroup?.cost||""} onChange={e=>set("cost",e.target.value)}/></F><F label="人數上限"><input type="number" style={S.input} value={editGroup?.maxPeople||""} onChange={e=>set("maxPeople",e.target.value)}/></F></div>
         <div style={{marginBottom:14}}><F label="地點"><input style={S.input} value={editGroup?.location||""} onChange={e=>set("location",e.target.value)}/></F></div>
         <F label="說明"><textarea style={S.textarea} value={editGroup?.description||""} onChange={e=>set("description",e.target.value)}/></F>
+        <div style={{marginTop:14}}>
+          <label style={S.label}>示意圖</label>
+          {editGroup?.image?(
+            <div style={{position:"relative",marginBottom:8}}>
+              <img src={editGroup.image} alt="示意圖" style={{width:"100%",maxHeight:240,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45"}}/>
+              <button type="button" onClick={()=>set("image","")} style={{position:"absolute",top:8,right:8,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 移除</button>
+            </div>
+          ):null}
+          <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
+            {imgLoadingAdm?"⏳ 處理中…":(editGroup?.image?"📷 更換圖片":"📷 上傳示意圖")}
+            <input type="file" accept="image/*" onChange={onPickImgAdm} style={{display:"none"}}/>
+          </label>
+        </div>
         <button style={{...S.btn("success"),marginTop:12}} onClick={saveGroupInfo}>💾 儲存</button>
       </div>
 
