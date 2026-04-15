@@ -406,7 +406,25 @@ function App() {
     return()=>window.removeEventListener("firebase-ready",onReady);
   },[]);
 
-  const saveGroups=async(next)=>{setGroups(next);await DB.set("app","groups",{data:next,updatedAt:Date.now()});};
+  // 估算資料大小（位元組）
+  const estimateSize=(obj)=>{try{return JSON.stringify(obj).length;}catch{return 0;}};
+  const saveGroups=async(next)=>{
+    const payload={data:next,updatedAt:Date.now()};
+    const size=estimateSize(payload);
+    if(size>1040000){ // Firestore 上限 1MB，保留 20KB 緩衝
+      showToast(`❌ 儲存失敗：資料量過大（${Math.round(size/1024)}KB，上限 1024KB），請刪除舊活動或減少圖片`);
+      return false;
+    }
+    const prev=groups;
+    setGroups(next);
+    const ok=await DB.set("app","groups",payload);
+    if(!ok){
+      showToast("❌ 雲端儲存失敗，變更已回復");
+      setGroups(prev);
+      return false;
+    }
+    return true;
+  };
   const saveWishes=async(next)=>{setWishes(next);await DB.set("app","wishes",{data:next,updatedAt:Date.now()});};
 
   const getDates=(group)=>{
@@ -787,7 +805,7 @@ function App() {
       if(!file)return;
       if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
       setImgLoading(true);
-      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl);}
+      try{const dataUrl=await compressImage(file,700,0.65); set("image",dataUrl);}
       catch{showToast("❌ 圖片處理失敗");}
       finally{setImgLoading(false);}
     };
@@ -804,7 +822,8 @@ function App() {
       const hashedPw=await sha256(form.password);
       const hashedJoin=form.joinPassword?await sha256(form.joinPassword):"";
       const next={...groups,[id]:{...form,id,password:hashedPw,joinPassword:hashedJoin,organizerSlots,joiners:{},createdAt:Date.now(),status:"open"}};
-      await saveGroups(next);
+      const ok=await saveGroups(next);
+      if(!ok)return; // 儲存失敗，不進入完成頁
       setDone(id); showToast("✅ 開團成功！");
     };
     if(done)return(<div style={S.card}><div style={{textAlign:"center",padding:"20px 0"}}>
@@ -1377,7 +1396,7 @@ function App() {
       if(!file)return;
       if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
       setImgLoadingAdm(true);
-      try{const dataUrl=await compressImage(file,900,0.72); set("image",dataUrl); showToast("🖼 已更換圖片，記得按儲存");}
+      try{const dataUrl=await compressImage(file,700,0.65); set("image",dataUrl); showToast("🖼 已更換圖片，記得按儲存");}
       catch{showToast("❌ 圖片處理失敗");}
       finally{setImgLoadingAdm(false);}
     };
