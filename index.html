@@ -252,6 +252,24 @@ const exportToGCal = (title, date, timeLabel, timeRange, location) => {
 };
 
 // SlotPicker
+// 獨立 Toast 元件（自己管狀態，不牽動 App 重渲染 → 打字鍵盤不會跳）
+function ToastOverlay() {
+  const [msg, setMsg] = useState("");
+  const timerRef = useRef();
+  useEffect(() => {
+    const handler = (e) => {
+      setMsg(e.detail);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setMsg(""), 2800);
+    };
+    window.addEventListener("ju-toast", handler);
+    return () => window.removeEventListener("ju-toast", handler);
+  }, []);
+  if (!msg) return null;
+  return (<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"nowrap",maxWidth:"90vw",textAlign:"center"}}>{msg}</div>);
+}
+const showToastGlobal = (msg) => window.dispatchEvent(new CustomEvent("ju-toast", {detail: msg}));
+
 function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, otherJoiners={}, readOnly=false, countMap={}, maxCount=1, intersect={}, joiners={} }) {
   const [popup, setPopup] = useState(null);
   const [weekPage, setWeekPage] = useState(0);
@@ -388,7 +406,7 @@ function App() {
       history.replaceState({},"",url.toString());
     }catch{}
   };
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(""); // 保留但不再觸發 App 重渲染（僅給舊程式相容，已改 showToast 走 event bus）
   const [template, setTemplate] = useState(null);
   // 用 useRef 保存開團表單（不觸發 App 重渲染），Tab 內用 local state 初始化自 ref
   const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""});
@@ -401,7 +419,7 @@ function App() {
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fbReady, setFbReady] = useState(false);
-  const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(""),2800);};
+  const showToast=(msg)=>{window.dispatchEvent(new CustomEvent("ju-toast",{detail:msg}));};
 
   useEffect(()=>{
     const init=async()=>{
@@ -566,8 +584,11 @@ function App() {
       const joinerLimit=maxP?maxP-1:null;
       const isFull=joinerLimit&&jc>=joinerLimit;
       const isConfirmed=g.status==="confirmed";
+      const today=new Date().toISOString().slice(0,10);
+      const endDate=g.confirmed?.finalDate||g.dateEnd||g.dateStart;
+      const isExpired=endDate&&endDate<today;
       return(
-        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isExpired?"#37415133":isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start",opacity:isExpired?0.6:1}}>
           {g.image&&(
             <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
           )}
@@ -577,8 +598,9 @@ function App() {
                 <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
                 <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
                 {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
-                {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
-                {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
+                {isExpired&&<span style={{background:"#37415133",border:"1px solid #64748b55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#94a3b8",fontWeight:700}}>📦 已結束</span>}
+                {!isExpired&&isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
+                {!isExpired&&isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
                 {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
               </div>
               <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
@@ -750,8 +772,11 @@ function App() {
       const joinerLimit=maxP?maxP-1:null;
       const isFull=joinerLimit&&jc>=joinerLimit;
       const isConfirmed=g.status==="confirmed";
+      const today=new Date().toISOString().slice(0,10);
+      const endDate=g.confirmed?.finalDate||g.dateEnd||g.dateStart;
+      const isExpired=endDate&&endDate<today;
       return(
-        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start"}}>
+        <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isExpired?"#37415133":isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start",opacity:isExpired?0.6:1}}>
           {g.image&&(
             <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
           )}
@@ -761,8 +786,9 @@ function App() {
                 <span style={S.badge(COLORS[i%COLORS.length])}># {id}</span>
                 <span style={{fontWeight:800,fontSize:15}}>{g.activityName}</span>
                 {g.category&&(()=>{const c=getCategory(g.category);return <span style={{background:c.color+"22",border:`1px solid ${c.color}55`,borderRadius:6,padding:"2px 8px",fontSize:11,color:c.color,fontWeight:700}}>{c.label}</span>;})()}
-                {isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
-                {isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
+                {isExpired&&<span style={{background:"#37415133",border:"1px solid #64748b55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#94a3b8",fontWeight:700}}>📦 已結束</span>}
+                {!isExpired&&isConfirmed&&<span style={{background:"#34d39922",border:"1px solid #34d39955",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#34d399",fontWeight:700}}>✅ 已成團</span>}
+                {!isExpired&&isFull&&!isConfirmed&&<span style={{background:"#dc262622",border:"1px solid #dc262655",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#f87171",fontWeight:700}}>額滿</span>}
                 {g.groupType==="private"&&<span style={{background:"#a78bfa22",border:"1px solid #a78bfa55",borderRadius:6,padding:"2px 8px",fontSize:11,color:"#a78bfa",fontWeight:700}}>🔒 限定</span>}
               </div>
               <span style={{fontSize:12,color:"#6b8aa8"}}>{fmt(g.dateStart)}{g.dateEnd&&g.dateEnd!==g.dateStart?` ～ ${fmt(g.dateEnd)}`:""}</span>
@@ -967,10 +993,12 @@ function App() {
     const [joinPw,setJoinPw]=useState("");
     const [name,setName]=useState(""),[email,setEmail]=useState(""),[contact,setContact]=useState(""),[slots,setSlots]=useState({}),[note,setNote]=useState("");
     const [submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[doneMode,setDoneMode]=useState("joiner");
+    const [myCheckEmail,setMyCheckEmail]=useState("");
+    const [myEntry,setMyEntry]=useState(null);
 
     useEffect(()=>{
       if(window._fbReady&&window.dbListen){
-        const unsub=window.dbListen("app","groups",(data)=>{if(data?.data?.[gid])setLocalGroup(data.data[gid]);});
+        const unsub=window.dbListen("activities",gid,(data)=>{if(data)setLocalGroup(data);});
         return unsub;
       }else setLocalGroup(groups[gid]||null);
     },[gid]);
@@ -1137,6 +1165,36 @@ function App() {
                 )}
               </>
             )
+          )}
+        </div>
+      )}
+
+      {/* 查詢 / 取消我的報名 */}
+      {joinStep===0&&(
+        <div style={S.card}>
+          <h3 style={{...S.sT,marginBottom:10,fontSize:15}}>🔎 我已經報名了？查詢／取消</h3>
+          <div style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>輸入報名時用的信箱</div>
+          <div style={{display:"flex",gap:8}}>
+            <input style={{...S.input,flex:1}} placeholder="your@email.com" value={myCheckEmail} onChange={e=>setMyCheckEmail(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}setMyEntry(found||{notFound:true});}}}/>
+            <button style={S.btn("primary")} onClick={()=>{const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}setMyEntry(found||{notFound:true});}}>查詢</button>
+          </div>
+          {myEntry?.notFound&&(<p style={{fontSize:12,color:"#6b8aa8",marginTop:10}}>此信箱沒有報名紀錄</p>)}
+          {myEntry?.name&&(
+            <div style={{marginTop:12,background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#38bdf8",marginBottom:4}}>{myEntry.waitlist?"⏳ 候補中":"✅ 已報名"} — {myEntry.name}</div>
+              <div style={{fontSize:11,color:"#6b8aa8"}}>信箱：{myEntry.data.email}{myEntry.data.contact?` ｜ ${myEntry.data.contact}`:""}</div>
+              {myEntry.data.note&&<div style={{fontSize:11,color:"#6b8aa8",marginTop:3}}>備註：{myEntry.data.note}</div>}
+              <button style={{...S.btn("danger"),marginTop:10,padding:"6px 14px",fontSize:12}} onClick={async()=>{
+                if(!window.confirm(`確定取消「${myEntry.name}」的報名？`))return;
+                const latest=(await DB.getAll("activities"))||groups;
+                const lg=latest[gid]; if(!lg)return;
+                const field=myEntry.waitlist?"waitlist":"joiners";
+                const n={...(lg[field]||{})}; delete n[myEntry.name];
+                const nextG={...latest,[gid]:{...lg,[field]:n}};
+                const ok=await saveGroups(nextG);
+                if(ok){setMyEntry(null);setMyCheckEmail("");showToast("✅ 已取消報名");}
+              }}>🗑 取消我的報名</button>
+            </div>
           )}
         </div>
       )}
@@ -1974,7 +2032,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"nowrap",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
+      <ToastOverlay/>
     </div>
   );
 }
