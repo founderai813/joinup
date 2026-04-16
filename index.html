@@ -270,7 +270,7 @@ function ToastOverlay() {
 }
 const showToastGlobal = (msg) => window.dispatchEvent(new CustomEvent("ju-toast", {detail: msg}));
 
-function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, otherJoiners={}, readOnly=false, countMap={}, maxCount=1, intersect={}, joiners={} }) {
+function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, otherJoiners={}, readOnly=false, countMap={}, maxCount=1, intersect={}, joiners={}, restrictToOrganizer=false }) {
   const [popup, setPopup] = useState(null);
   const [weekPage, setWeekPage] = useState(0);
   // 週一當第一天：把 dates 分成以 Mon-Sun 為欄位的週別矩陣
@@ -300,6 +300,7 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
     :DAYS_SHORT.map(d=>({top:d,bot:""}));
   const otherNames=Object.keys(otherJoiners);
   const otherCnt=(key)=>otherNames.filter(n=>otherJoiners[n].slots?.[key]).length;
+  const hasOrgLimit=restrictToOrganizer&&Object.keys(organizerSlots||{}).length>0;
   const handleClick=(cell,sk)=>{
     if(!cell&&dates)return; // 空格子（非活動日期），不可點
     const globalDi=cell?cell.globalDi:0, key=`${globalDi}-${sk}`;
@@ -310,6 +311,11 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
       const canNames=Object.keys(joiners).filter(n=>joiners[n].slots?.[key]);
       const cannotNames=Object.keys(joiners).filter(n=>!joiners[n].slots?.[key]);
       setPopup(popup?.key===key?null:{key,slot,dateLabel,canNames,cannotNames}); return;
+    }
+    // 限定：只能選團主有標的時段
+    if(hasOrgLimit&&!organizerSlots[key]){
+      showToastGlobal("❗ 只能選團主標記過的時段");
+      return;
     }
     setMySlots(p=>{const n={...p};if(n[key])delete n[key];else n[key]=true;return n;}); setPopup(null);
   };
@@ -322,6 +328,8 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
     }
     const isMine=!!mySlots[key],isOrg=!!organizerSlots[key],others=otherCnt(key);
     const badge=others>0?`+${others}`:null;
+    // 限制模式：團主沒標的時段顯示為禁用
+    if(hasOrgLimit&&!isOrg)return{bg:"#0a0f1a",border:"1px dashed #1e2d45",text:"#374a5e",badge:null,disabled:true};
     if(isMine)return isOrg?{bg:"#22c55e",border:"2px solid #4ade80",text:"#fff",badge}:{bg:"#16a34a",border:"2px solid #22c55e",text:"#fff",badge};
     if(isOrg)return others>0?{bg:"#0f3460",border:"2px solid #38bdf8",text:"#fbbf24",badge:`+${others}`}:{bg:"#0c2a4a",border:"2px solid #38bdf8",text:"transparent",badge:null};
     if(others>0)return{bg:"#2a1a0a",border:"2px solid #f97316",text:"#fb923c",badge:`+${others}`};
@@ -361,7 +369,7 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
               if(isEmpty){
                 return(<div key={localDi} style={{height:40,borderRadius:8,background:"#080d18",border:"1px dashed #1e2d45",opacity:0.4}}/>);
               }
-              return(<div key={localDi} onClick={()=>handleClick(cell,slot.key)} style={{height:40,borderRadius:8,background:cs.bg,border:isActive?"2px solid #fff":cs.border,cursor:"pointer",transition:"all .12s",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:isActive?"#fff":cs.text,transform:isActive?"scale(0.92)":"scale(1)"}}>{displayText}</div>);
+              return(<div key={localDi} onClick={()=>handleClick(cell,slot.key)} style={{height:40,borderRadius:8,background:cs.bg,border:isActive?"2px solid #fff":cs.border,cursor:cs.disabled?"not-allowed":"pointer",transition:"all .12s",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:isActive?"#fff":cs.text,transform:isActive?"scale(0.92)":"scale(1)",opacity:cs.disabled?0.5:1}}>{displayText}</div>);
             })}
           </div>
         ))}
@@ -369,11 +377,12 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
       {!readOnly&&(
         <div style={{marginTop:10,background:"#0b1523",borderRadius:8,padding:"8px 12px"}}>
           <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px",marginBottom:4}}>
+            {hasOrgLimit&&<span style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:"#0a0f1a",border:"1px dashed #1e2d45",display:"inline-block",opacity:0.5}}/>主揪沒標（不可選）</span>}
             {[["#1a2535","1px solid #2a3f5a","沒人"],["#0c2a4a","2px solid #38bdf8","主揪可以"],["#22c55e","2px solid #4ade80","我可以"],["#2a1a0a","2px solid #f97316","其他人填了"]].map(([bg,border,label])=>(
               <span key={label} style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:bg,border,display:"inline-block"}}/>{label}</span>
             ))}
           </div>
-          <div style={{fontSize:10,color:"#374a5e"}}>點擊格子選取 / 取消</div>
+          <div style={{fontSize:10,color:"#374a5e"}}>{hasOrgLimit?"只能選團主標記過（藍框）的時段":"點擊格子選取 / 取消"}</div>
         </div>
       )}
       {readOnly&&<div style={{marginTop:6,fontSize:11,color:"#374a5e"}}>點擊格子查看誰可以參加</div>}
@@ -1236,7 +1245,7 @@ function App() {
             <F label="聯絡方式" hint="選填"><input style={S.input} placeholder="IG / Line ID" value={contact} onChange={e=>setContact(e.target.value)}/></F>
           </div>
           <label style={S.label}>可以的時間 <span style={{fontWeight:400,fontSize:10,color:"#374a5e"}}>(點格子切換)</span></label>
-          <SlotPicker dates={dates} mySlots={slots} setMySlots={setSlots} organizerSlots={group.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(joiners).filter(([n])=>n!==name.trim()))}/>
+          <SlotPicker dates={dates} mySlots={slots} setMySlots={setSlots} organizerSlots={group.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(joiners).filter(([n])=>n!==name.trim()))} restrictToOrganizer/>
           <div style={{height:14}}/>
           <F label="備註" hint="選填，想跟主揪說的話"><textarea style={S.textarea} placeholder="例：我會晚到、會帶朋友、有食物過敏…" value={note} onChange={e=>setNote(e.target.value)}/></F>
           <div style={{display:"flex",gap:10,marginTop:14}}>
@@ -1572,7 +1581,7 @@ function App() {
 
     if(editJoiner)return(<div style={S.card}>
       <h2 style={S.sT}>✏️ 修改：{editJoiner.name}</h2>
-      <SlotPicker dates={dates} mySlots={editSlots} setMySlots={setEditSlots} organizerSlots={groups[authedId]?.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(groups[authedId]?.joiners||{}).filter(([n])=>n!==editJoiner?.name))}/>
+      <SlotPicker dates={dates} mySlots={editSlots} setMySlots={setEditSlots} organizerSlots={groups[authedId]?.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(groups[authedId]?.joiners||{}).filter(([n])=>n!==editJoiner?.name))} restrictToOrganizer/>
       <div style={{height:14}}/>
       <F label="備註"><textarea style={S.textarea} value={editJoiner.note} onChange={e=>setEditJoiner(p=>({...p,note:e.target.value}))}/></F>
       <div style={{display:"flex",gap:10,marginTop:14}}>
@@ -1837,7 +1846,7 @@ function App() {
       const{gid}=editJoiner,dates=getDates(groups[gid]);
       return(<div style={S.card}>
         <h2 style={S.sT}>✏️ {editJoiner.name}</h2>
-        <SlotPicker dates={dates} mySlots={editSlots} setMySlots={setEditSlots} organizerSlots={groups[gid]?.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(groups[gid]?.joiners||{}).filter(([n])=>n!==editJoiner.name))}/>
+        <SlotPicker dates={dates} mySlots={editSlots} setMySlots={setEditSlots} organizerSlots={groups[gid]?.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(groups[gid]?.joiners||{}).filter(([n])=>n!==editJoiner.name))} restrictToOrganizer/>
         <div style={{height:14}}/>
         <F label="備註"><textarea style={S.textarea} value={editJoiner.note} onChange={e=>setEditJoiner(p=>({...p,note:e.target.value}))}/></F>
         <div style={{display:"flex",gap:10,marginTop:14}}>
