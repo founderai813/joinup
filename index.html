@@ -1047,9 +1047,18 @@ function App() {
     if(done)return(<div style={{...S.card,margin:"16px 10px"}}><div style={{textAlign:"center",padding:"20px 0"}}>
       <div style={{fontSize:48}}>{doneMode==="waitlist"?"⏳":isConfirmed?"🎉":"🙌"}</div>
       <h2 style={{...S.sT,textAlign:"center"}}>{doneMode==="waitlist"?"已加入候補！":isConfirmed?"報名成功！":"跟團成功！"}</h2>
-      <p style={{color:"#6b8aa8",marginBottom:16}}>{doneMode==="waitlist"?"當有人退出，主揪會聯繫你遞補。":isConfirmed?"已報名，等開團者通知！":"已送出可用時間！"}</p>
+      <p style={{color:"#6b8aa8",marginBottom:16}}>{doneMode==="waitlist"?"當有人退出，主揪會聯繫你遞補。":isConfirmed?"已報名，等開團者通知！":"已送出可用時間，等開團者確定時間後會再通知"}</p>
       {isConfirmed&&group.confirmed?.finalDate&&(
-        <button style={{...S.btn("success"),marginBottom:10}} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>📅 加入 Google Calendar</button>
+        <div style={{background:"#0a1f0a",border:"1px solid #34d39944",borderRadius:10,padding:14,marginBottom:14,textAlign:"left"}}>
+          <div style={{fontWeight:700,color:"#34d399",marginBottom:6,fontSize:13,textAlign:"center"}}>📅 活動資訊</div>
+          <div style={{fontSize:13,color:"#bae6fd",marginBottom:4,textAlign:"center"}}>{group.confirmed.finalDate} {group.confirmed.finalSlot}</div>
+          {group.confirmed.finalLocation&&<div style={{fontSize:13,color:"#bae6fd",marginBottom:12,textAlign:"center"}}>📍 {group.confirmed.finalLocation}</div>}
+          <div style={{fontSize:12,color:"#6b8aa8",fontWeight:700,marginBottom:8,textAlign:"center"}}>加入行事曆提醒你</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+            <button style={S.btn("success")} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>📅 Google Calendar</button>
+            <button style={S.btn("secondary")} onClick={()=>downloadICS(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location,group.description)}>📥 iCal / Apple 行事曆</button>
+          </div>
+        </div>
       )}
       <div><button style={S.btn("ghost")} onClick={()=>{setDone(false);setJoinStep(0);setName("");setEmail("");setContact("");setSlots({});setNote("");}}>← 返回活動</button></div>
     </div></div>);
@@ -1082,20 +1091,12 @@ function App() {
         </div>
         {group.description&&<p style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>{group.description}</p>}
 
-        {/* 已成團：確定資訊 + 匯出 */}
+        {/* 已成團：確定資訊（匯出行事曆按鈕改放到報名完成頁） */}
         {isConfirmed&&group.confirmed?.finalDate&&(
           <div style={{background:"#0a1f0a",border:"1px solid #34d39944",borderRadius:10,padding:14,marginBottom:10}}>
             <div style={{fontWeight:700,color:"#34d399",marginBottom:8,fontSize:13}}>✅ 確定活動資訊</div>
             <div style={{fontSize:13,color:"#bae6fd",marginBottom:4}}>📅 {group.confirmed.finalDate} {group.confirmed.finalSlot}</div>
-            {group.confirmed.finalLocation&&<div style={{fontSize:13,color:"#bae6fd",marginBottom:10}}>📍 {group.confirmed.finalLocation}</div>}
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <button style={S.btn("success")} onClick={()=>exportToGCal(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location)}>
-                📅 Google Calendar
-              </button>
-              <button style={S.btn("secondary")} onClick={()=>downloadICS(group.activityName,group.confirmed.finalDate,group.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===group.confirmed.finalSlot)?.time,group.confirmed.finalLocation||group.location,group.description)}>
-                📥 iCal / Apple 行事曆
-              </button>
-            </div>
+            {group.confirmed.finalLocation&&<div style={{fontSize:13,color:"#bae6fd"}}>📍 {group.confirmed.finalLocation}</div>}
           </div>
         )}
 
