@@ -383,13 +383,13 @@ function App() {
   };
   const [toast, setToast] = useState("");
   const [template, setTemplate] = useState(null);
-  // 開團表單狀態放在 App 層級，避免 showToast 觸發 App 重渲染時 OrganizerTab 被 remount 導致資料遺失
+  // 用 useRef 保存開團表單（不觸發 App 重渲染），Tab 內用 local state 初始化自 ref
   const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""});
-  const [orgForm,setOrgForm]=useState(initForm);
-  const [orgSlots,setOrgSlots]=useState({});
-  const [orgDone,setOrgDone]=useState(null);
-  const [orgIdErr,setOrgIdErr]=useState("");
-  const [orgImgLoading,setOrgImgLoading]=useState(false);
+  const orgFormRef=useRef(initForm());
+  const orgSlotsRef=useRef({});
+  const orgDoneRef=useRef(null);
+  const orgIdErrRef=useRef("");
+  const orgImgLoadingRef=useRef(false);
   const [groups, setGroups] = useState({});
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -785,19 +785,22 @@ function App() {
 
   // ── ORGANIZER ──
   const OrganizerTab=()=>{
-    // 使用 App 層的狀態，避免 showToast 觸發 remount 而遺失表單
-    const form=orgForm, setForm=setOrgForm;
-    const organizerSlots=orgSlots, setOrganizerSlots=setOrgSlots;
-    const done=orgDone, setDone=setOrgDone;
-    const idErr=orgIdErr, setIdErr=setOrgIdErr;
-    const imgLoading=orgImgLoading, setImgLoading=setOrgImgLoading;
+    // local state 初始化自 ref（ref 跨 remount 保留資料）
+    const [form,setFormRaw]=useState(()=>orgFormRef.current);
+    const setForm=(v)=>{setFormRaw(p=>{const n=typeof v==="function"?v(p):v;orgFormRef.current=n;return n;});};
+    const [organizerSlots,setOrgSlotsRaw]=useState(()=>orgSlotsRef.current);
+    const setOrganizerSlots=(v)=>{setOrgSlotsRaw(p=>{const n=typeof v==="function"?v(p):v;orgSlotsRef.current=n;return n;});};
+    const [done,setDoneRaw]=useState(()=>orgDoneRef.current);
+    const setDone=(v)=>{orgDoneRef.current=v;setDoneRaw(v);};
+    const [idErr,setIdErrRaw]=useState(()=>orgIdErrRef.current);
+    const setIdErr=(v)=>{orgIdErrRef.current=v;setIdErrRaw(v);};
+    const [imgLoading,setImgLoadingRaw]=useState(()=>orgImgLoadingRef.current);
+    const setImgLoading=(v)=>{orgImgLoadingRef.current=v;setImgLoadingRaw(v);};
     useEffect(()=>{
       if(template){
         const t=template;
-        setOrgForm({...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""});
-        setOrgSlots({});
-        setOrgDone(null);
-        setOrgIdErr("");
+        const f={...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""};
+        setForm(f); setOrganizerSlots({}); setDone(null); setIdErr("");
         setTemplate(null);
       }
     },[]);
@@ -835,7 +838,7 @@ function App() {
       <div style={{fontSize:32,fontWeight:900,color:"#38bdf8",letterSpacing:4,fontFamily:"monospace",margin:"10px 0"}}>{done}</div>
       <div style={{background:"#1e0a0a",border:"1px solid #f8717144",borderRadius:8,padding:"10px 16px",margin:"0 auto 16px",maxWidth:360,fontSize:13,color:"#f87171"}}>⚠ 請記住管理密碼！{form.groupType==="private"&&<><br/>跟團密碼：<b>{form.joinPassword}</b></>}</div>
       <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:20}}>
-        <button style={S.btn("secondary")} onClick={()=>{setDone(null);setForm(initForm());setOrganizerSlots({});setIdErr("");}}>再開一團</button>
+        <button style={S.btn("secondary")} onClick={()=>{const f=initForm();setForm(f);setOrganizerSlots({});setDone(null);setIdErr("");}}>再開一團</button>
         <button style={S.btn("primary")} onClick={()=>setTab("manage")}>前往管理頁面</button>
       </div>
     </div></div>);
