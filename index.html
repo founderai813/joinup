@@ -26,7 +26,7 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   const firebaseConfig = {
     apiKey: "AIzaSyA7drKkcTJ8Tr-to422Sh_r_SLz52ASJb0",
     authDomain: "joinup-a4e3d.firebaseapp.com",
@@ -39,10 +39,14 @@
   const db = getFirestore(app);
   window._db = db; window._fbReady = true;
   window.dispatchEvent(new Event("firebase-ready"));
-  window.dbGet = async (col, id) => { try { const snap = await getDoc(doc(db,col,id)); return snap.exists()?snap.data():null; } catch(e){return null;} };
-  window.dbSet = async (col, id, data) => { try { await setDoc(doc(db,col,id),data); return {ok:true}; } catch(e){console.error("Firestore set failed:",e);return {ok:false,err:e};} };
-  window.dbDel = async (col, id) => { try { await deleteDoc(doc(db,col,id)); return true; } catch(e){return false;} };
+  // 每日使用量計數（localStorage）
+  const bump=(type,n=1)=>{try{const k="ju_usage_"+new Date().toISOString().slice(0,10);const d=JSON.parse(localStorage.getItem(k)||"{}");d[type]=(d[type]||0)+n;localStorage.setItem(k,JSON.stringify(d));}catch{}};
+  window.dbGet = async (col, id) => { bump("read"); try { const snap = await getDoc(doc(db,col,id)); return snap.exists()?snap.data():null; } catch(e){return null;} };
+  window.dbSet = async (col, id, data) => { bump("write"); try { await setDoc(doc(db,col,id),data); return {ok:true}; } catch(e){console.error("Firestore set failed:",e);return {ok:false,err:e};} };
+  window.dbDel = async (col, id) => { bump("delete"); try { await deleteDoc(doc(db,col,id)); return true; } catch(e){return false;} };
   window.dbListen = (col, id, cb) => onSnapshot(doc(db,col,id), snap => cb(snap.exists()?snap.data():null));
+  // 讀取整個集合（回傳 {id: data}）
+  window.dbGetAll = async (col) => { try { const snap = await getDocs(collection(db,col)); bump("read",snap.size); const out={}; snap.forEach(d=>{out[d.id]=d.data();}); return out; } catch(e){console.error("dbGetAll failed:",e); return null;} };
 </script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -194,8 +198,11 @@ const ls = {
 const DB = {
   get: async(col,id)=>{ if(window._fbReady){const d=await window.dbGet(col,id);if(d)return d;} return ls.get(col+"_"+id); },
   set: async(col,id,data)=>{ ls.set(col+"_"+id,data); if(window._fbReady)return await window.dbSet(col,id,data); return {ok:true}; },
-  del: async(col,id)=>{ if(window._fbReady)await window.dbDel(col,id); },
+  del: async(col,id)=>{ ls.set(col+"_"+id,null); if(window._fbReady)return await window.dbDel(col,id); return true; },
+  getAll: async(col)=>{ if(window._fbReady){const d=await window.dbGetAll(col); if(d)return d;} return null; },
 };
+// 每日使用量（localStorage 計數）
+const getDailyUsage=()=>{try{const k="ju_usage_"+new Date().toISOString().slice(0,10);return JSON.parse(localStorage.getItem(k)||"{}");}catch{return{};}};
 const fmt=(d)=>d?new Date(d).toLocaleDateString("zh-TW"):"—";
 const isValidEmail=(e)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
@@ -398,7 +405,30 @@ function App() {
 
   useEffect(()=>{
     const init=async()=>{
-      const g=await DB.get("app","groups"); if(g?.data)setGroups(g.data);
+      // 新架構：先從 activities 集合讀取
+      let groupsData=null;
+      if(window._fbReady){
+        const coll=await DB.getAll("activities");
+        if(coll&&Object.keys(coll).length>0){
+          groupsData=coll;
+        }else{
+          // 遷移舊資料：從 app/groups 移到 activities 集合
+          const old=await DB.get("app","groups");
+          if(old?.data&&Object.keys(old.data).length>0){
+            console.log("Migrating",Object.keys(old.data).length,"activities to per-doc…");
+            for(const[id,data]of Object.entries(old.data)){
+              await DB.set("activities",id,data);
+            }
+            groupsData=old.data;
+            showToast("🔄 資料已升級為新架構");
+          }
+        }
+      }
+      if(!groupsData){
+        // 離線：用 localStorage 裡的舊備援
+        const g=await DB.get("app","groups"); if(g?.data)groupsData=g.data;
+      }
+      if(groupsData)setGroups(groupsData);
       const w=await DB.get("app","wishes"); if(w?.data)setWishes(w.data);
       setLoading(false);
     };
@@ -410,33 +440,35 @@ function App() {
 
   // 估算資料大小（位元組）
   const estimateSize=(obj)=>{try{return JSON.stringify(obj).length;}catch{return 0;}};
-  // 計算所有圖片佔用空間
   const calcImageSize=(grs)=>Object.values(grs||{}).reduce((s,g)=>s+(g.image?.length||0),0);
+  // 新架構：每個活動一個 Firestore 文件。saveGroups 自動 diff 並寫入／刪除變更項
   const saveGroups=async(next)=>{
-    const payload={data:next,updatedAt:Date.now()};
-    const size=estimateSize(payload);
-    // 900KB buffer for Firestore encoding overhead
-    if(size>900000){
-      const imgSize=calcImageSize(next);
-      const msg=imgSize>200000
-        ? `❌ 資料量過大（${Math.round(size/1024)}KB，上限約 1000KB）。圖片占了 ${Math.round(imgSize/1024)}KB，請刪除一些舊活動的圖片`
-        : `❌ 資料量過大（${Math.round(size/1024)}KB），請在「團主管理」刪除一些舊活動`;
-      showToast(msg);
-      return false;
+    // 檢查每個活動的大小（單 doc 上限 1MB，保留緩衝到 900KB）
+    for(const[id,g]of Object.entries(next)){
+      const s=estimateSize(g);
+      if(s>900000){
+        showToast(`❌「${g.activityName||id}」資料量過大（${Math.round(s/1024)}KB），請縮小圖片或減少內容`);
+        return false;
+      }
     }
     const prev=groups;
     setGroups(next);
-    const res=await DB.set("app","groups",payload);
-    const ok=typeof res==="object"?res.ok:res;
-    if(!ok){
-      const errMsg=res?.err?.message||"未知錯誤";
+    // 找出變更、新增、刪除
+    const prevIds=Object.keys(prev||{}),nextIds=Object.keys(next||{});
+    const toWrite=[],toDelete=[];
+    for(const id of nextIds){
+      if(!prev[id]||JSON.stringify(prev[id])!==JSON.stringify(next[id])){toWrite.push([id,next[id]]);}
+    }
+    for(const id of prevIds){if(!next[id])toDelete.push(id);}
+    // 平行寫入 / 刪除
+    const writeResults=await Promise.all(toWrite.map(([id,data])=>DB.set("activities",id,data)));
+    await Promise.all(toDelete.map(id=>DB.del("activities",id)));
+    const writeFailed=writeResults.find(r=>!(typeof r==="object"?r.ok:r));
+    if(writeFailed){
+      const errMsg=writeFailed?.err?.message||"未知錯誤";
       showToast(`❌ 雲端儲存失敗：${errMsg.slice(0,40)}`);
       setGroups(prev);
       return false;
-    }
-    // 接近上限警告
-    if(size>700000){
-      setTimeout(()=>showToast(`⚠️ 儲存空間已用 ${Math.round(size/1024)}KB / 1000KB，建議清理`),500);
     }
     return true;
   };
@@ -973,8 +1005,7 @@ function App() {
       if(!name.trim()){showToast("❗ 請填寫姓名");return;}
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       setSubmitting(true);
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[gid];
       if(!latestGroup){showToast("❌ 活動不存在");setSubmitting(false);return;}
       const latestJoiners=latestGroup.joiners||{};
@@ -991,8 +1022,7 @@ function App() {
       if(!name.trim()){showToast("❗ 請填寫姓名");return;}
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       setSubmitting(true);
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[gid];
       if(!latestGroup){showToast("❌ 活動不存在");setSubmitting(false);return;}
       const waitlist=latestGroup.waitlist||{};
@@ -1006,8 +1036,7 @@ function App() {
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       if(!contact.trim()){showToast("❗ 請填寫聯絡方式");return;}
       setSubmitting(true);
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[gid];
       const latestJoiners=latestGroup.joiners||{};
       const next={...latest,[gid]:{...latestGroup,joiners:{...latestJoiners,[name.trim()]:{email,contact,registeredAt:Date.now(),isRegistered:true}}}};
@@ -1322,8 +1351,7 @@ function App() {
       if(!cName.trim()){showToast("❗ 請填寫名字");return;}
       if(!cText.trim()){showToast("❗ 請填寫留言");return;}
       setPosting(true);
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const lg=latest[gid]; if(!lg){setPosting(false);return;}
       const next={...latest,[gid]:{...lg,comments:[...(lg.comments||[]),{name:cName.trim(),text:cText.trim(),time:Date.now()}]}};
       await saveGroups(next);
@@ -1379,8 +1407,7 @@ function App() {
     const dates=group?getDates(group):null;
     const saveGroupInfo=async()=>{
       // 先抓最新資料，避免覆蓋到最新的跟團者 / 候補 / 留言
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[authedId]||groups[authedId]||{};
       const merged={
         ...latestGroup,
@@ -1396,12 +1423,11 @@ function App() {
       setEditGroup({...merged});
       showToast("✅ 已更新");
     };
-    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
-    const deleteJoiner=async(name)=>{const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
+    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latest=(await DB.getAll("activities"))||groups;const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
+    const deleteJoiner=async(name)=>{const latest=(await DB.getAll("activities"))||groups;const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
     const openEditJoiner=(name)=>{const data=groups[authedId].joiners[name];setEditJoiner({name,note:data.note||""});setEditSlots({...(data.slots||{})});};
     const saveJoiner=async()=>{
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const lg=latest[authedId]; if(!lg)return;
       const nj={...(lg.joiners||{}),[editJoiner.name]:{...(lg.joiners?.[editJoiner.name]||{}),slots:editSlots,note:editJoiner.note}};
       const next={...latest,[authedId]:{...lg,joiners:nj}};
@@ -1420,8 +1446,7 @@ function App() {
     };
     const openEditOrgSlots=()=>{setOrgSlotsDraft({...(groups[authedId]?.organizerSlots||{})});setEditingOrgSlots(true);};
     const saveOrgSlots=async()=>{
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,organizerSlots:orgSlotsDraft}};
       await saveGroups(next); setEditingOrgSlots(false); showToast("✅ 已更新時段");
@@ -1429,15 +1454,13 @@ function App() {
 
     // 已成案
     const markConfirmed=async()=>{
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,status:"confirmed",confirmed:{...confirmedDraft,confirmedAt:Date.now()}}};
       await saveGroups(next); setEditingConfirmed(false); showToast("✅ 已標記為成團！");
     };
     const unmarkConfirmed=async()=>{
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,status:"open",confirmed:null}};
       await saveGroups(next); showToast("✅ 已取消成團標記");
@@ -1642,8 +1665,7 @@ function App() {
         const wnames=Object.keys(wl);
         if(wnames.length===0)return null;
         const promote=async(n)=>{
-          const latestData=await DB.get("app","groups");
-          const latest=latestData?.data||groups;
+          const latest=(await DB.getAll("activities"))||groups;
           const lg=latest[authedId]; if(!lg)return;
           const latestWl=lg.waitlist||{};
           const person=latestWl[n]||wl[n];
@@ -1654,8 +1676,7 @@ function App() {
         };
         const delWait=async(n)=>{
           if(!window.confirm(`確定從候補刪除 ${n}？`))return;
-          const latestData=await DB.get("app","groups");
-          const latest=latestData?.data||groups;
+          const latest=(await DB.getAll("activities"))||groups;
           const lg=latest[authedId]; if(!lg)return;
           const nwl={...(lg.waitlist||{})}; delete nwl[n];
           const next={...latest,[authedId]:{...lg,waitlist:nwl}};
@@ -1705,13 +1726,12 @@ function App() {
     };
     const allIds=Object.keys(groups);
     const totalGroups=allIds.length,totalJoiners=allIds.reduce((s,id)=>s+Object.keys(groups[id].joiners||{}).length,0),totalWishes=wishes.length;
-    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const next={...latest};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
-    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const latestData=await DB.get("app","groups");const latest=latestData?.data||groups;const lg=latest[gid];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[gid]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
+    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const latest=(await DB.getAll("activities"))||groups;const next={...latest};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
+    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const latest=(await DB.getAll("activities"))||groups;const lg=latest[gid];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[gid]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
     const openEditJoiner=(gid,name)=>{const d=groups[gid].joiners[name];setEditJoiner({gid,name,note:d.note||""});setEditSlots({...(d.slots||{})});setSubPage("joiner-"+gid+"-"+name);};
     const saveJoiner=async()=>{
       const{gid,name}=editJoiner;
-      const latestData=await DB.get("app","groups");
-      const latest=latestData?.data||groups;
+      const latest=(await DB.getAll("activities"))||groups;
       const lg=latest[gid]; if(!lg)return;
       const nj={...(lg.joiners||{}),[name]:{...(lg.joiners?.[name]||{}),slots:editSlots,note:editJoiner.note}};
       const next={...latest,[gid]:{...lg,joiners:nj}};
@@ -1785,12 +1805,20 @@ function App() {
           </div>
         ))}
       </div>
-      {/* 儲存空間使用量 */}
+      {/* Firebase 儀表板 */}
       {(()=>{
-        const size=estimateSize({data:groups,updatedAt:Date.now()});
+        const allGroupSizes=Object.entries(groups).map(([id,g])=>({id,name:g.activityName||id,size:estimateSize(g),image:(g.image?.length||0)}));
+        const totalSize=allGroupSizes.reduce((s,g)=>s+g.size,0);
         const imgSize=calcImageSize(groups);
-        const pct=Math.min(100,Math.round(size/10000));
+        const biggestGroup=allGroupSizes.sort((a,b)=>b.size-a.size)[0];
+        const maxPerDoc=Math.max(1,...allGroupSizes.map(g=>g.size));
+        const pct=Math.min(100,Math.round(maxPerDoc/10000));
         const barColor=pct>90?"#dc2626":pct>70?"#fbbf24":"#34d399";
+        const usage=getDailyUsage();
+        const reads=usage.read||0,writes=usage.write||0,deletes=usage.delete||0;
+        const freeReads=50000,freeWrites=20000,freeDeletes=20000;
+        const readPct=Math.round(reads/freeReads*100),writePct=Math.round(writes/freeWrites*100);
+        const quotaColor=(p)=>p>80?"#dc2626":p>50?"#fbbf24":"#34d399";
         const clearAllImages=async()=>{
           if(!window.confirm(`確定移除所有活動的圖片？共 ${Math.round(imgSize/1024)}KB`))return;
           const next={...groups};
@@ -1798,20 +1826,50 @@ function App() {
           const ok=await saveGroups(next);
           if(ok)showToast("🗑 已移除所有圖片");
         };
-        return(
-          <div style={{background:"#080d18",border:`1px solid ${barColor}55`,borderRadius:12,padding:14,marginBottom:20}}>
+        return(<>
+          <div style={{background:"#080d18",border:`1px solid ${barColor}55`,borderRadius:12,padding:14,marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
-              <div style={{fontWeight:700,fontSize:13,color:barColor}}>💾 雲端儲存空間 {pct}%</div>
-              <div style={{fontSize:12,color:"#6b8aa8"}}>{Math.round(size/1024)}KB / 約 1000KB（圖片占 {Math.round(imgSize/1024)}KB）</div>
+              <div style={{fontWeight:700,fontSize:13,color:barColor}}>💾 最大活動容量 {pct}%</div>
+              <div style={{fontSize:12,color:"#6b8aa8"}}>最大 {Math.round(maxPerDoc/1024)}KB / 1000KB（全部 {Math.round(totalSize/1024)}KB，圖片 {Math.round(imgSize/1024)}KB）</div>
             </div>
             <div style={{background:"#1e2d45",borderRadius:6,height:8,overflow:"hidden"}}>
               <div style={{width:`${pct}%`,height:"100%",background:barColor,transition:"width .3s"}}/>
             </div>
+            {biggestGroup&&pct>60&&(
+              <div style={{fontSize:11,color:"#6b8aa8",marginTop:8}}>💡 最大的活動：「{biggestGroup.name}」（{Math.round(biggestGroup.size/1024)}KB）{biggestGroup.image>10000?`，圖片佔 ${Math.round(biggestGroup.image/1024)}KB`:""}</div>
+            )}
             {imgSize>50000&&(
               <button style={{...S.btn("danger"),marginTop:10,padding:"6px 14px",fontSize:12}} onClick={clearAllImages}>🗑 一鍵清除所有圖片</button>
             )}
           </div>
-        );
+          {/* 今日 Firebase 用量 */}
+          <div style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:12,padding:14,marginBottom:12}}>
+            <div style={{fontWeight:700,fontSize:13,color:"#e2f0ff",marginBottom:10}}>📊 今日 Firebase 用量 <span style={{fontSize:10,fontWeight:400,color:"#6b8aa8",marginLeft:6}}>（超過免費額度才會計費）</span></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <div>
+                <div style={{fontSize:11,color:quotaColor(readPct),fontWeight:700,marginBottom:3}}>👁 讀取 {reads}/{freeReads}</div>
+                <div style={{background:"#1e2d45",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:`${Math.min(100,readPct)}%`,height:"100%",background:quotaColor(readPct)}}/></div>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:quotaColor(writePct),fontWeight:700,marginBottom:3}}>✍ 寫入 {writes}/{freeWrites}</div>
+                <div style={{background:"#1e2d45",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:`${Math.min(100,writePct)}%`,height:"100%",background:quotaColor(writePct)}}/></div>
+              </div>
+              <div>
+                <div style={{fontSize:11,color:"#6b8aa8",fontWeight:700,marginBottom:3}}>🗑 刪除 {deletes}/{freeDeletes}</div>
+                <div style={{background:"#1e2d45",borderRadius:4,height:5,overflow:"hidden"}}><div style={{width:`${Math.min(100,Math.round(deletes/freeDeletes*100))}%`,height:"100%",background:"#6b8aa8"}}/></div>
+              </div>
+            </div>
+            {(readPct>80||writePct>80)&&(
+              <div style={{marginTop:10,padding:10,background:"#1a0a0a",border:"1px solid #dc262655",borderRadius:8,fontSize:12,color:"#f87171"}}>
+                ⚠️ 今日用量接近免費上限。如果你還沒升級 Blaze 方案，服務會自動暫停直到明日；若已升級，會開始計費
+              </div>
+            )}
+            <div style={{fontSize:10,color:"#374a5e",marginTop:8,lineHeight:1.5}}>
+              免費額度：每日 50,000 讀取 / 20,000 寫入 / 20,000 刪除。<br/>
+              想啟用 email 提醒：<a href="https://console.firebase.google.com/project/joinup-a4e3d/usage" target="_blank" style={{color:"#38bdf8"}}>Firebase Console</a> → 用量與計費 → 設定預算警示
+            </div>
+          </div>
+        </>);
       })()}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff"}}>🎪 所有活動</div>
