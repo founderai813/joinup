@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"/>
 <title>JoinUp 揪團神器</title>
 <meta name="description" content="揪團神器 — 開團、跟團、找出共同空閒時間，成團後一鍵匯入 Google Calendar"/>
 <meta name="theme-color" content="#080d18"/>
@@ -49,8 +49,10 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #080d18; font-family: 'DM Sans', sans-serif; color: #dde8f5; min-height: 100vh; }
-input, textarea, button, select { font-family: inherit; }
+html { height: 100%; background: #080d18; }
+body { background: #080d18; font-family: 'DM Sans', sans-serif; color: #dde8f5; min-height: 100%; }
+input, textarea, button, select { font-family: inherit; font-size: 16px; }
+input:focus, textarea:focus { outline: none; border-color: #38bdf8 !important; }
 ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track { background: #0f1729; } ::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 3px; }
 @media (max-width: 600px) {
   .ju-nav { gap: 0 !important; }
@@ -446,15 +448,15 @@ function App() {
   };
 
   const S={
-    root:{minHeight:"100vh",background:"#080d18",paddingBottom:80},
+    root:{minHeight:"100%",background:"#080d18",paddingBottom:80},
     topbar:{background:"#0f1729",borderBottom:"1px solid #1e2d45",padding:"18px 20px 0"},
     title:{margin:"0 0 14px",fontSize:22,fontWeight:900,fontFamily:"'Syne',sans-serif",background:"linear-gradient(90deg,#38bdf8,#818cf8)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"},
     nav:{display:"flex",gap:1,overflowX:"auto"},
     navBtn:(a)=>({padding:"12px 15px",border:"none",background:"transparent",color:a?"#38bdf8":"#6b8aa8",cursor:"pointer",fontWeight:a?700:500,fontSize:13,borderBottom:a?"2px solid #38bdf8":"2px solid transparent",whiteSpace:"nowrap",transition:"all .15s"}),
     card:{background:"#0f1729",border:"1px solid #1e2d45",borderRadius:14,padding:22,margin:"16px auto",maxWidth:740},
     label:{display:"block",fontSize:11,color:"#6b8aa8",marginBottom:5,fontWeight:700,letterSpacing:.6,textTransform:"uppercase"},
-    input:{width:"100%",boxSizing:"border-box",background:"#080d18",border:"1px solid #1e2d45",borderRadius:8,padding:"10px 14px",color:"#dde8f5",fontSize:14,outline:"none"},
-    textarea:{width:"100%",boxSizing:"border-box",background:"#080d18",border:"1px solid #1e2d45",borderRadius:8,padding:"10px 14px",color:"#dde8f5",fontSize:14,outline:"none",resize:"vertical",minHeight:72},
+    input:{width:"100%",boxSizing:"border-box",background:"#080d18",border:"1px solid #1e2d45",borderRadius:8,padding:"10px 14px",color:"#dde8f5",fontSize:16,outline:"none"},
+    textarea:{width:"100%",boxSizing:"border-box",background:"#080d18",border:"1px solid #1e2d45",borderRadius:8,padding:"10px 14px",color:"#dde8f5",fontSize:16,outline:"none",resize:"vertical",minHeight:72},
     btn:(v="primary")=>({padding:"10px 20px",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,fontSize:13,transition:"all .15s",
       background:v==="primary"?"linear-gradient(90deg,#38bdf8,#0ea5e9)":v==="success"?"linear-gradient(90deg,#34d399,#10b981)":v==="danger"?"#dc2626":v==="warning"?"#d97706":v==="ghost"?"transparent":"#1e2d45",
       color:v==="ghost"?"#6b8aa8":"#fff",border:v==="ghost"?"1px solid #1e2d45":"none"}),
@@ -1869,7 +1871,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      {toast&&<div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"nowrap"}}>{toast}</div>}
+      {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"nowrap",maxWidth:"90vw",textAlign:"center"}}>{toast}</div>}
     </div>
   );
 }
