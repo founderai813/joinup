@@ -40,7 +40,7 @@
   window._db = db; window._fbReady = true;
   window.dispatchEvent(new Event("firebase-ready"));
   window.dbGet = async (col, id) => { try { const snap = await getDoc(doc(db,col,id)); return snap.exists()?snap.data():null; } catch(e){return null;} };
-  window.dbSet = async (col, id, data) => { try { await setDoc(doc(db,col,id),data); return true; } catch(e){return false;} };
+  window.dbSet = async (col, id, data) => { try { await setDoc(doc(db,col,id),data); return {ok:true}; } catch(e){console.error("Firestore set failed:",e);return {ok:false,err:e};} };
   window.dbDel = async (col, id) => { try { await deleteDoc(doc(db,col,id)); return true; } catch(e){return false;} };
   window.dbListen = (col, id, cb) => onSnapshot(doc(db,col,id), snap => cb(snap.exists()?snap.data():null));
 </script>
@@ -193,7 +193,7 @@ const ls = {
 };
 const DB = {
   get: async(col,id)=>{ if(window._fbReady){const d=await window.dbGet(col,id);if(d)return d;} return ls.get(col+"_"+id); },
-  set: async(col,id,data)=>{ ls.set(col+"_"+id,data); if(window._fbReady)await window.dbSet(col,id,data); },
+  set: async(col,id,data)=>{ ls.set(col+"_"+id,data); if(window._fbReady)return await window.dbSet(col,id,data); return {ok:true}; },
   del: async(col,id)=>{ if(window._fbReady)await window.dbDel(col,id); },
 };
 const fmt=(d)=>d?new Date(d).toLocaleDateString("zh-TW"):"—";
@@ -410,20 +410,33 @@ function App() {
 
   // 估算資料大小（位元組）
   const estimateSize=(obj)=>{try{return JSON.stringify(obj).length;}catch{return 0;}};
+  // 計算所有圖片佔用空間
+  const calcImageSize=(grs)=>Object.values(grs||{}).reduce((s,g)=>s+(g.image?.length||0),0);
   const saveGroups=async(next)=>{
     const payload={data:next,updatedAt:Date.now()};
     const size=estimateSize(payload);
-    if(size>1040000){ // Firestore 上限 1MB，保留 20KB 緩衝
-      showToast(`❌ 儲存失敗：資料量過大（${Math.round(size/1024)}KB，上限 1024KB），請刪除舊活動或減少圖片`);
+    // 900KB buffer for Firestore encoding overhead
+    if(size>900000){
+      const imgSize=calcImageSize(next);
+      const msg=imgSize>200000
+        ? `❌ 資料量過大（${Math.round(size/1024)}KB，上限約 1000KB）。圖片占了 ${Math.round(imgSize/1024)}KB，請刪除一些舊活動的圖片`
+        : `❌ 資料量過大（${Math.round(size/1024)}KB），請在「團主管理」刪除一些舊活動`;
+      showToast(msg);
       return false;
     }
     const prev=groups;
     setGroups(next);
-    const ok=await DB.set("app","groups",payload);
+    const res=await DB.set("app","groups",payload);
+    const ok=typeof res==="object"?res.ok:res;
     if(!ok){
-      showToast("❌ 雲端儲存失敗，變更已回復");
+      const errMsg=res?.err?.message||"未知錯誤";
+      showToast(`❌ 雲端儲存失敗：${errMsg.slice(0,40)}`);
       setGroups(prev);
       return false;
+    }
+    // 接近上限警告
+    if(size>700000){
+      setTimeout(()=>showToast(`⚠️ 儲存空間已用 ${Math.round(size/1024)}KB / 1000KB，建議清理`),500);
     }
     return true;
   };
@@ -1772,6 +1785,34 @@ function App() {
           </div>
         ))}
       </div>
+      {/* 儲存空間使用量 */}
+      {(()=>{
+        const size=estimateSize({data:groups,updatedAt:Date.now()});
+        const imgSize=calcImageSize(groups);
+        const pct=Math.min(100,Math.round(size/10000));
+        const barColor=pct>90?"#dc2626":pct>70?"#fbbf24":"#34d399";
+        const clearAllImages=async()=>{
+          if(!window.confirm(`確定移除所有活動的圖片？共 ${Math.round(imgSize/1024)}KB`))return;
+          const next={...groups};
+          Object.keys(next).forEach(id=>{if(next[id].image)next[id]={...next[id],image:""};});
+          const ok=await saveGroups(next);
+          if(ok)showToast("🗑 已移除所有圖片");
+        };
+        return(
+          <div style={{background:"#080d18",border:`1px solid ${barColor}55`,borderRadius:12,padding:14,marginBottom:20}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+              <div style={{fontWeight:700,fontSize:13,color:barColor}}>💾 雲端儲存空間 {pct}%</div>
+              <div style={{fontSize:12,color:"#6b8aa8"}}>{Math.round(size/1024)}KB / 約 1000KB（圖片占 {Math.round(imgSize/1024)}KB）</div>
+            </div>
+            <div style={{background:"#1e2d45",borderRadius:6,height:8,overflow:"hidden"}}>
+              <div style={{width:`${pct}%`,height:"100%",background:barColor,transition:"width .3s"}}/>
+            </div>
+            {imgSize>50000&&(
+              <button style={{...S.btn("danger"),marginTop:10,padding:"6px 14px",fontSize:12}} onClick={clearAllImages}>🗑 一鍵清除所有圖片</button>
+            )}
+          </div>
+        );
+      })()}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
         <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff"}}>🎪 所有活動</div>
         {allIds.length>0&&<button style={{...S.btn("secondary"),padding:"6px 12px",fontSize:12}} onClick={()=>{
