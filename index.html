@@ -327,12 +327,17 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
       return{bg:"#1e2d45",border:"1px solid transparent",text:"transparent"};
     }
     const isMine=!!mySlots[key],isOrg=!!organizerSlots[key],others=otherCnt(key);
-    const badge=others>0?`+${others}`:null;
+    // 顯示可來人數：主揪 + 其他跟團者 + 我（若有選）
+    const canCount=(isOrg?1:0)+others+(isMine?1:0);
+    const totalPeople=1+otherNames.length+1; // 主揪 + 其他跟團者 + 我
+    const isFullIntersect=isOrg&&isMine&&others===otherNames.length&&otherNames.length>0;
+    const badge=canCount>1?(isFullIntersect?`✨${canCount}`:`${canCount}`):null;
     // 限制模式：團主沒標的時段完全隱形（只留下可選的時段）
     if(hasOrgLimit&&!isOrg)return{bg:"transparent",border:"none",text:"transparent",badge:null,disabled:true};
+    if(isFullIntersect)return{bg:"#38bdf8",border:"2px solid #7dd3fc",text:"#fff",badge};
     if(isMine)return isOrg?{bg:"#22c55e",border:"2px solid #4ade80",text:"#fff",badge}:{bg:"#16a34a",border:"2px solid #22c55e",text:"#fff",badge};
-    if(isOrg)return others>0?{bg:"#0f3460",border:"2px solid #38bdf8",text:"#fbbf24",badge:`+${others}`}:{bg:"#0c2a4a",border:"2px solid #38bdf8",text:"transparent",badge:null};
-    if(others>0)return{bg:"#2a1a0a",border:"2px solid #f97316",text:"#fb923c",badge:`+${others}`};
+    if(isOrg)return others>0?{bg:"#0f3460",border:"2px solid #38bdf8",text:"#fbbf24",badge}:{bg:"#0c2a4a",border:"2px solid #38bdf8",text:"transparent",badge:null};
+    if(others>0)return{bg:"#2a1a0a",border:"2px solid #f97316",text:"#fb923c",badge};
     return{bg:"#1a2535",border:"1px solid #2a3f5a",text:"transparent",badge:null};
   };
   return (
@@ -378,7 +383,7 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
         <div style={{marginTop:10,background:"#0b1523",borderRadius:8,padding:"8px 12px"}}>
           <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px",marginBottom:4}}>
             {hasOrgLimit?(
-              [["#0c2a4a","2px solid #38bdf8","主揪可以的時間"],["#22c55e","2px solid #4ade80","我可以"]].map(([bg,border,label])=>(
+              [["#0c2a4a","2px solid #38bdf8","可選時段"],["#22c55e","2px solid #4ade80","我可以"],["#38bdf8","2px solid #7dd3fc","✨ 全員都可"]].map(([bg,border,label])=>(
                 <span key={label} style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:bg,border,display:"inline-block"}}/>{label}</span>
               ))
             ):(
@@ -387,7 +392,7 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
               ))
             )}
           </div>
-          <div style={{fontSize:10,color:"#374a5e"}}>{hasOrgLimit?"點藍色格子選取 / 取消":"點擊格子選取 / 取消"}</div>
+          <div style={{fontSize:10,color:"#374a5e"}}>{hasOrgLimit?"格子上的數字＝能來的人數（含主揪）；✨ 代表所有人都能來":"點擊格子選取 / 取消"}</div>
         </div>
       )}
       {readOnly&&<div style={{marginTop:6,fontSize:11,color:"#374a5e"}}>點擊格子查看誰可以參加</div>}
@@ -1690,39 +1695,6 @@ function App() {
         </div>
         <button style={{...S.btn("success"),marginTop:12}} onClick={saveGroupInfo}>💾 儲存</button>
       </div>
-
-      {/* 時間交集（僅主揪可見，協助決定成團時間） */}
-      {(()=>{
-        const dates=getDates(group);
-        const hasOrg=Object.keys(group?.organizerSlots||{}).length>0;
-        const names=Object.keys(joiners);
-        if(names.length===0&&!hasOrg)return null;
-        const allP={...joiners};
-        if(hasOrg)allP.__主揪__={slots:group.organizerSlots};
-        const {countMap,intersect}=buildCountMap(allP,dates);
-        const total=Object.keys(allP).length;
-        const list=[];
-        (dates||DAYS_SHORT).forEach((d,di)=>{
-          TIME_SLOTS.forEach(slot=>{
-            if(intersect[`${di}-${slot.key}`]){
-              const lbl=dates?(()=>{const dt=new Date(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_SHORT[dt.getDay()===0?6:dt.getDay()-1]})`;})():`週${DAYS_SHORT[di]}`;
-              list.push(`${lbl} ${slot.label}（${slot.time}）`);
-            }
-          });
-        });
-        return(
-          <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:10,padding:14,marginBottom:16}}>
-            <div style={{fontWeight:700,fontSize:14,color:"#38bdf8",marginBottom:10}}>📊 時間交集 <span style={{fontSize:11,fontWeight:400,color:"#6b8aa8"}}>（僅主揪可見，含主揪時段）</span></div>
-            <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={total} intersect={intersect} joiners={allP}/>
-            {list.length>0&&(
-              <div style={{marginTop:12,padding:12,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
-                <div style={{fontWeight:700,color:"#38bdf8",marginBottom:6,fontSize:12}}>✨ 所有人都可以的時段</div>
-                {list.map((s,i)=><div key={i} style={{fontSize:12,color:"#bae6fd",marginBottom:2}}>• {s}</div>)}
-              </div>
-            )}
-          </div>
-        );
-      })()}
 
       {/* 跟團者列表 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
