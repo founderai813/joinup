@@ -409,7 +409,7 @@ function App() {
   const [toast, setToast] = useState(""); // 保留但不再觸發 App 重渲染（僅給舊程式相容，已改 showToast 走 event bus）
   const [template, setTemplate] = useState(null);
   // 用 useRef 保存開團表單（不觸發 App 重渲染），Tab 內用 local state 初始化自 ref
-  const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:""});
+  const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:"",note:""});
   const orgFormRef=useRef(initForm());
   const orgSlotsRef=useRef({});
   const orgDoneRef=useRef(null);
@@ -870,7 +870,7 @@ function App() {
     useEffect(()=>{
       if(template){
         const t=template;
-        const f={...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||""};
+        const f={...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||"",note:t.note||""};
         setForm(f); setOrganizerSlots({}); setDone(null); setIdErr("");
         setTemplate(null);
       }
@@ -961,6 +961,8 @@ function App() {
       </div>
       <div style={{marginBottom:14}}><F label="活動地點"><input style={S.input} placeholder="例：台北市信義區" value={form.location} onChange={e=>set("location",e.target.value)}/></F></div>
       <F label="活動說明"><textarea style={S.textarea} placeholder="詳細描述活動…" value={form.description} onChange={e=>set("description",e.target.value)}/></F>
+      <div style={{height:14}}/>
+      <F label="備註" hint="選填，主揪想補充的資訊（跟團者看得到）"><textarea style={S.textarea} placeholder="例：下雨改期、自備餐具、有寵物…" value={form.note} onChange={e=>set("note",e.target.value)}/></F>
       <div style={{marginTop:14}}>
         <label style={S.label}>示意圖（選填）</label>
         {form.image?(
@@ -1117,7 +1119,13 @@ function App() {
           {maxP&&<span>👥 上限{maxP}人</span>}
           {group.category&&(()=>{const c=getCategory(group.category);return <span style={{color:c.color}}>{c.label}</span>;})()}
         </div>
-        {group.description&&<p style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>{group.description}</p>}
+        {group.description&&<p style={{fontSize:12,color:"#6b8aa8",marginBottom:10,whiteSpace:"pre-wrap"}}>{group.description}</p>}
+        {group.note&&(
+          <div style={{background:"#1a1205",border:"1px solid #fbbf2444",borderRadius:10,padding:12,marginBottom:10}}>
+            <div style={{fontWeight:700,color:"#fbbf24",marginBottom:6,fontSize:12}}>📝 主揪備註</div>
+            <div style={{fontSize:12,color:"#bae6fd",whiteSpace:"pre-wrap"}}>{group.note}</div>
+          </div>
+        )}
 
         {/* 已成團：確定資訊（匯出行事曆按鈕改放到報名完成頁） */}
         {isConfirmed&&group.confirmed?.finalDate&&(
@@ -1224,7 +1232,7 @@ function App() {
           <label style={S.label}>可以的時間 <span style={{fontWeight:400,fontSize:10,color:"#374a5e"}}>(點格子切換)</span></label>
           <SlotPicker dates={dates} mySlots={slots} setMySlots={setSlots} organizerSlots={group.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(joiners).filter(([n])=>n!==name.trim()))}/>
           <div style={{height:14}}/>
-          <F label="備註"><textarea style={S.textarea} placeholder="有什麼想說的…" value={note} onChange={e=>setNote(e.target.value)}/></F>
+          <F label="備註" hint="選填，想跟主揪說的話"><textarea style={S.textarea} placeholder="例：我會晚到、會帶朋友、有食物過敏…" value={note} onChange={e=>setNote(e.target.value)}/></F>
           <div style={{display:"flex",gap:10,marginTop:14}}>
             <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
             <button style={{...S.btn(joinStep===4?"warning":"success"),flex:1,opacity:submitting?0.6:1}} onClick={joinStep===4?submitWaitlist:submitJoin} disabled={submitting}>{submitting?"送出中…":(joinStep===4?"⏳ 加入候補":"🙌 送出跟團！")}</button>
@@ -1662,6 +1670,8 @@ function App() {
         <div style={S.g3}><F label="時數"><input type="number" style={S.input} value={editGroup?.hours||""} onChange={e=>set("hours",e.target.value)}/></F><F label="費用"><input style={S.input} value={editGroup?.cost||""} onChange={e=>set("cost",e.target.value)}/></F><F label="人數上限"><input type="number" style={S.input} value={editGroup?.maxPeople||""} onChange={e=>set("maxPeople",e.target.value)}/></F></div>
         <div style={{marginBottom:14}}><F label="地點"><input style={S.input} value={editGroup?.location||""} onChange={e=>set("location",e.target.value)}/></F></div>
         <F label="說明"><textarea style={S.textarea} value={editGroup?.description||""} onChange={e=>set("description",e.target.value)}/></F>
+        <div style={{height:14}}/>
+        <F label="備註" hint="選填，跟團者看得到"><textarea style={S.textarea} value={editGroup?.note||""} onChange={e=>set("note",e.target.value)}/></F>
         <div style={{marginTop:14}}>
           <label style={S.label}>示意圖</label>
           {editGroup?.image?(
