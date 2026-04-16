@@ -328,8 +328,8 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
     }
     const isMine=!!mySlots[key],isOrg=!!organizerSlots[key],others=otherCnt(key);
     const badge=others>0?`+${others}`:null;
-    // 限制模式：團主沒標的時段顯示為禁用
-    if(hasOrgLimit&&!isOrg)return{bg:"#0a0f1a",border:"1px dashed #1e2d45",text:"#374a5e",badge:null,disabled:true};
+    // 限制模式：團主沒標的時段完全隱形（只留下可選的時段）
+    if(hasOrgLimit&&!isOrg)return{bg:"transparent",border:"none",text:"transparent",badge:null,disabled:true};
     if(isMine)return isOrg?{bg:"#22c55e",border:"2px solid #4ade80",text:"#fff",badge}:{bg:"#16a34a",border:"2px solid #22c55e",text:"#fff",badge};
     if(isOrg)return others>0?{bg:"#0f3460",border:"2px solid #38bdf8",text:"#fbbf24",badge:`+${others}`}:{bg:"#0c2a4a",border:"2px solid #38bdf8",text:"transparent",badge:null};
     if(others>0)return{bg:"#2a1a0a",border:"2px solid #f97316",text:"#fb923c",badge:`+${others}`};
@@ -377,12 +377,17 @@ function SlotPicker({ dates, mySlots={}, setMySlots=()=>{}, organizerSlots={}, o
       {!readOnly&&(
         <div style={{marginTop:10,background:"#0b1523",borderRadius:8,padding:"8px 12px"}}>
           <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px",marginBottom:4}}>
-            {hasOrgLimit&&<span style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:"#0a0f1a",border:"1px dashed #1e2d45",display:"inline-block",opacity:0.5}}/>主揪沒標（不可選）</span>}
-            {[["#1a2535","1px solid #2a3f5a","沒人"],["#0c2a4a","2px solid #38bdf8","主揪可以"],["#22c55e","2px solid #4ade80","我可以"],["#2a1a0a","2px solid #f97316","其他人填了"]].map(([bg,border,label])=>(
-              <span key={label} style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:bg,border,display:"inline-block"}}/>{label}</span>
-            ))}
+            {hasOrgLimit?(
+              [["#0c2a4a","2px solid #38bdf8","主揪可以的時間"],["#22c55e","2px solid #4ade80","我可以"]].map(([bg,border,label])=>(
+                <span key={label} style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:bg,border,display:"inline-block"}}/>{label}</span>
+              ))
+            ):(
+              [["#1a2535","1px solid #2a3f5a","沒人"],["#0c2a4a","2px solid #38bdf8","主揪可以"],["#22c55e","2px solid #4ade80","我可以"],["#2a1a0a","2px solid #f97316","其他人填了"]].map(([bg,border,label])=>(
+                <span key={label} style={{fontSize:11,display:"flex",alignItems:"center",gap:4}}><span style={{width:14,height:14,borderRadius:3,background:bg,border,display:"inline-block"}}/>{label}</span>
+              ))
+            )}
           </div>
-          <div style={{fontSize:10,color:"#374a5e"}}>{hasOrgLimit?"只能選團主標記過（藍框）的時段":"點擊格子選取 / 取消"}</div>
+          <div style={{fontSize:10,color:"#374a5e"}}>{hasOrgLimit?"點藍色格子選取 / 取消":"點擊格子選取 / 取消"}</div>
         </div>
       )}
       {readOnly&&<div style={{marginTop:6,fontSize:11,color:"#374a5e"}}>點擊格子查看誰可以參加</div>}
@@ -1269,38 +1274,6 @@ function App() {
         </div>
       )}
 
-      {/* 時間交集 / 參加者（限定團需解鎖） */}
-      {canSeeParticipants?(
-        (names.length>0||hasOrgSlots)&&(
-          <div style={S.card}>
-            <label style={S.label}>時間交集 {hasOrgSlots&&<span style={{fontSize:11,color:"#38bdf8",fontWeight:400}}>(含主揪)</span>}{isPrivate&&<span style={{fontSize:11,color:"#a78bfa",fontWeight:400,marginLeft:6}}>🔒 限定團內部</span>}</label>
-            <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={totalCount} intersect={intersect} joiners={allParticipants}/>
-            {intersectList.length>0&&(
-              <div style={{marginTop:14,padding:14,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
-                <div style={{fontWeight:700,color:"#38bdf8",marginBottom:8,fontSize:13}}>✨ 所有人都可以的時段</div>
-                {intersectList.map((s,i)=><div key={i} style={{fontSize:13,color:"#bae6fd",marginBottom:3}}>• {s.label}</div>)}
-              </div>
-            )}
-            {names.some(n=>joiners[n].note)&&(
-              <><hr style={S.hr}/><label style={S.label}>備註</label>{names.filter(n=>joiners[n].note).map((n,i)=><div key={n} style={{fontSize:13,marginBottom:6}}><span style={S.badge(COLORS[i%COLORS.length])}>{n}</span><span style={{color:"#8aaac8",marginLeft:8}}>{joiners[n].note}</span></div>)}</>
-            )}
-          </div>
-        )
-      ):(
-        <div style={S.card}>
-          <div style={{textAlign:"center",padding:"10px 0"}}>
-            <div style={{fontSize:32,marginBottom:8}}>🔒</div>
-            <div style={{fontWeight:700,fontSize:14,color:"#a78bfa",marginBottom:4}}>限定團 — 參加者資訊已隱藏</div>
-            <div style={{fontSize:12,color:"#6b8aa8",marginBottom:14}}>只有主揪、已報名的跟團者可以看到已報名人數 {joiners?Object.keys(joiners).length:0} 人</div>
-            <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-              <input type="password" style={{...S.input,maxWidth:200}} placeholder="輸入跟團密碼" value={unlockPw} onChange={e=>setUnlockPw(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){(async()=>{if(await matchPw(unlockPw,group.joinPassword)){setUnlocked(true);setUnlockPw("");showToast("✅ 已解鎖");}else showToast("❌ 密碼錯誤");})();}}}/>
-              <button style={S.btn("primary")} onClick={async()=>{if(await matchPw(unlockPw,group.joinPassword)){setUnlocked(true);setUnlockPw("");showToast("✅ 已解鎖");}else showToast("❌ 密碼錯誤");}}>🔓 解鎖查看</button>
-            </div>
-            <div style={{fontSize:11,color:"#374a5e",marginTop:10}}>或下方用「🔎 查詢我的報名」信箱驗證後也會自動解鎖</div>
-          </div>
-        </div>
-      )}
-
       {/* 分享活動 */}
       <SharePanel gid={gid} group={group}/>
 
@@ -1717,6 +1690,39 @@ function App() {
         </div>
         <button style={{...S.btn("success"),marginTop:12}} onClick={saveGroupInfo}>💾 儲存</button>
       </div>
+
+      {/* 時間交集（僅主揪可見，協助決定成團時間） */}
+      {(()=>{
+        const dates=getDates(group);
+        const hasOrg=Object.keys(group?.organizerSlots||{}).length>0;
+        const names=Object.keys(joiners);
+        if(names.length===0&&!hasOrg)return null;
+        const allP={...joiners};
+        if(hasOrg)allP.__主揪__={slots:group.organizerSlots};
+        const {countMap,intersect}=buildCountMap(allP,dates);
+        const total=Object.keys(allP).length;
+        const list=[];
+        (dates||DAYS_SHORT).forEach((d,di)=>{
+          TIME_SLOTS.forEach(slot=>{
+            if(intersect[`${di}-${slot.key}`]){
+              const lbl=dates?(()=>{const dt=new Date(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_SHORT[dt.getDay()===0?6:dt.getDay()-1]})`;})():`週${DAYS_SHORT[di]}`;
+              list.push(`${lbl} ${slot.label}（${slot.time}）`);
+            }
+          });
+        });
+        return(
+          <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:10,padding:14,marginBottom:16}}>
+            <div style={{fontWeight:700,fontSize:14,color:"#38bdf8",marginBottom:10}}>📊 時間交集 <span style={{fontSize:11,fontWeight:400,color:"#6b8aa8"}}>（僅主揪可見，含主揪時段）</span></div>
+            <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={total} intersect={intersect} joiners={allP}/>
+            {list.length>0&&(
+              <div style={{marginTop:12,padding:12,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
+                <div style={{fontWeight:700,color:"#38bdf8",marginBottom:6,fontSize:12}}>✨ 所有人都可以的時段</div>
+                {list.map((s,i)=><div key={i} style={{fontSize:12,color:"#bae6fd",marginBottom:2}}>• {s}</div>)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 跟團者列表 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
