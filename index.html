@@ -997,6 +997,9 @@ function App() {
     const [submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[doneMode,setDoneMode]=useState("joiner");
     const [myCheckEmail,setMyCheckEmail]=useState("");
     const [myEntry,setMyEntry]=useState(null);
+    // 限定團需解鎖才能看參加者
+    const [unlocked,setUnlocked]=useState(false);
+    const [unlockPw,setUnlockPw]=useState("");
 
     useEffect(()=>{
       if(window._fbReady&&window.dbListen){
@@ -1020,6 +1023,9 @@ function App() {
     const isExisting=name.trim()&&!!joiners[name.trim()];
     const isFull=joinerLimit!==null&&joinerCount>=joinerLimit&&!isExisting;
     const isConfirmed=group.status==="confirmed";
+    // 限定團：只有輸入密碼解鎖、已用信箱查到自己有報名、或者開放團才顯示參加者
+    const isPrivate=group.groupType==="private";
+    const canSeeParticipants=!isPrivate||unlocked||(myEntry&&myEntry.name);
 
     const intersectList=[];
     if(totalCount>1)(dates||DAYS_SHORT).forEach((d,di)=>{
@@ -1183,8 +1189,8 @@ function App() {
           <h3 style={{...S.sT,marginBottom:10,fontSize:15}}>🔎 我已經報名了？查詢／取消</h3>
           <div style={{fontSize:12,color:"#6b8aa8",marginBottom:10}}>輸入報名時用的信箱</div>
           <div style={{display:"flex",gap:8}}>
-            <input style={{...S.input,flex:1}} placeholder="your@email.com" value={myCheckEmail} onChange={e=>setMyCheckEmail(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}setMyEntry(found||{notFound:true});}}}/>
-            <button style={S.btn("primary")} onClick={()=>{const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}setMyEntry(found||{notFound:true});}}>查詢</button>
+            <input style={{...S.input,flex:1}} placeholder="your@email.com" value={myCheckEmail} onChange={e=>setMyCheckEmail(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}if(found)setUnlocked(true);setMyEntry(found||{notFound:true});}}}/>
+            <button style={S.btn("primary")} onClick={()=>{const em=myCheckEmail.trim().toLowerCase();if(!em||!isValidEmail(em)){showToast("❗ 請輸入有效信箱");return;}let found=null;for(const n of Object.keys(group.joiners||{})){if((group.joiners[n].email||"").toLowerCase()===em){found={name:n,data:group.joiners[n],waitlist:false};break;}}if(!found)for(const n of Object.keys(group.waitlist||{})){if((group.waitlist[n].email||"").toLowerCase()===em){found={name:n,data:group.waitlist[n],waitlist:true};break;}}if(found)setUnlocked(true);setMyEntry(found||{notFound:true});}}>查詢</button>
           </div>
           {myEntry?.notFound&&(<p style={{fontSize:12,color:"#6b8aa8",marginTop:10}}>此信箱沒有報名紀錄</p>)}
           {myEntry?.name&&(
@@ -1214,7 +1220,7 @@ function App() {
           <F label="跟團密碼" required><input type="password" style={S.input} placeholder="請輸入開團者提供的密碼" value={joinPw} onChange={e=>setJoinPw(e.target.value)}/></F>
           <div style={{display:"flex",gap:10,marginTop:14}}>
             <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
-            <button style={{...S.btn("primary"),flex:1}} onClick={async()=>{if(await matchPw(joinPw,group.joinPassword)){setJoinStep(2);}else showToast("❌ 密碼錯誤");}}>確認 →</button>
+            <button style={{...S.btn("primary"),flex:1}} onClick={async()=>{if(await matchPw(joinPw,group.joinPassword)){setUnlocked(true);setJoinStep(2);}else showToast("❌ 密碼錯誤");}}>確認 →</button>
           </div>
         </div>
       )}
@@ -1254,20 +1260,35 @@ function App() {
         </div>
       )}
 
-      {/* 時間交集 */}
-      {(names.length>0||hasOrgSlots)&&(
+      {/* 時間交集 / 參加者（限定團需解鎖） */}
+      {canSeeParticipants?(
+        (names.length>0||hasOrgSlots)&&(
+          <div style={S.card}>
+            <label style={S.label}>時間交集 {hasOrgSlots&&<span style={{fontSize:11,color:"#38bdf8",fontWeight:400}}>(含主揪)</span>}{isPrivate&&<span style={{fontSize:11,color:"#a78bfa",fontWeight:400,marginLeft:6}}>🔒 限定團內部</span>}</label>
+            <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={totalCount} intersect={intersect} joiners={allParticipants}/>
+            {intersectList.length>0&&(
+              <div style={{marginTop:14,padding:14,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
+                <div style={{fontWeight:700,color:"#38bdf8",marginBottom:8,fontSize:13}}>✨ 所有人都可以的時段</div>
+                {intersectList.map((s,i)=><div key={i} style={{fontSize:13,color:"#bae6fd",marginBottom:3}}>• {s.label}</div>)}
+              </div>
+            )}
+            {names.some(n=>joiners[n].note)&&(
+              <><hr style={S.hr}/><label style={S.label}>備註</label>{names.filter(n=>joiners[n].note).map((n,i)=><div key={n} style={{fontSize:13,marginBottom:6}}><span style={S.badge(COLORS[i%COLORS.length])}>{n}</span><span style={{color:"#8aaac8",marginLeft:8}}>{joiners[n].note}</span></div>)}</>
+            )}
+          </div>
+        )
+      ):(
         <div style={S.card}>
-          <label style={S.label}>時間交集 {hasOrgSlots&&<span style={{fontSize:11,color:"#38bdf8",fontWeight:400}}>(含主揪)</span>}</label>
-          <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={totalCount} intersect={intersect} joiners={allParticipants}/>
-          {intersectList.length>0&&(
-            <div style={{marginTop:14,padding:14,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
-              <div style={{fontWeight:700,color:"#38bdf8",marginBottom:8,fontSize:13}}>✨ 所有人都可以的時段</div>
-              {intersectList.map((s,i)=><div key={i} style={{fontSize:13,color:"#bae6fd",marginBottom:3}}>• {s.label}</div>)}
+          <div style={{textAlign:"center",padding:"10px 0"}}>
+            <div style={{fontSize:32,marginBottom:8}}>🔒</div>
+            <div style={{fontWeight:700,fontSize:14,color:"#a78bfa",marginBottom:4}}>限定團 — 參加者資訊已隱藏</div>
+            <div style={{fontSize:12,color:"#6b8aa8",marginBottom:14}}>只有主揪、已報名的跟團者可以看到已報名人數 {joiners?Object.keys(joiners).length:0} 人</div>
+            <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+              <input type="password" style={{...S.input,maxWidth:200}} placeholder="輸入跟團密碼" value={unlockPw} onChange={e=>setUnlockPw(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){(async()=>{if(await matchPw(unlockPw,group.joinPassword)){setUnlocked(true);setUnlockPw("");showToast("✅ 已解鎖");}else showToast("❌ 密碼錯誤");})();}}}/>
+              <button style={S.btn("primary")} onClick={async()=>{if(await matchPw(unlockPw,group.joinPassword)){setUnlocked(true);setUnlockPw("");showToast("✅ 已解鎖");}else showToast("❌ 密碼錯誤");}}>🔓 解鎖查看</button>
             </div>
-          )}
-          {names.some(n=>joiners[n].note)&&(
-            <><hr style={S.hr}/><label style={S.label}>備註</label>{names.filter(n=>joiners[n].note).map((n,i)=><div key={n} style={{fontSize:13,marginBottom:6}}><span style={S.badge(COLORS[i%COLORS.length])}>{n}</span><span style={{color:"#8aaac8",marginLeft:8}}>{joiners[n].note}</span></div>)}</>
-          )}
+            <div style={{fontSize:11,color:"#374a5e",marginTop:10}}>或下方用「🔎 查詢我的報名」信箱驗證後也會自動解鎖</div>
+          </div>
         </div>
       )}
 
