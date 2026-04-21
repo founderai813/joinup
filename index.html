@@ -1819,6 +1819,17 @@ function App() {
       if(!(await matchPw(pw,d.password))){showToast("❌ 密碼錯誤");return;}
       if(!isHash(d.password)){await DB.set("app","admin",{password:await sha256(pw)});}
       setAuthed(true);
+      // 登入後檢查容量，超過閾值跳提醒
+      setTimeout(()=>{
+        const sizes=Object.values(groups).map(g=>estimateSize(g));
+        const maxSize=Math.max(0,...sizes);
+        const usage=getDailyUsage();
+        const readPct=Math.round((usage.read||0)/50000*100);
+        const writePct=Math.round((usage.write||0)/20000*100);
+        const pct=Math.round(maxSize/10000);
+        if(pct>90||readPct>80||writePct>80)showToast(`🚨 容量警告：最大活動 ${pct}%｜讀 ${readPct}%｜寫 ${writePct}%`);
+        else if(pct>70||readPct>50||writePct>50)showToast(`⚠️ 容量注意：最大活動 ${pct}%｜讀 ${readPct}%｜寫 ${writePct}%`);
+      },600);
     };
     const allIds=Object.keys(groups);
     const totalGroups=allIds.length,totalJoiners=allIds.reduce((s,id)=>s+Object.keys(groups[id].joiners||{}).length,0),totalWishes=wishes.length;
@@ -1903,7 +1914,7 @@ function App() {
       </div>
       {/* Firebase 儀表板 */}
       {(()=>{
-        const allGroupSizes=Object.entries(groups).map(([id,g])=>({id,name:g.activityName||id,size:estimateSize(g),image:(g.image?.length||0)}));
+        const allGroupSizes=Object.entries(groups).map(([id,g])=>({id,name:g.activityName||id,size:estimateSize(g),image:getImages(g).reduce((a,i)=>a+(i?.length||0),0)}));
         const totalSize=allGroupSizes.reduce((s,g)=>s+g.size,0);
         const imgSize=calcImageSize(groups);
         const biggestGroup=allGroupSizes.sort((a,b)=>b.size-a.size)[0];
@@ -1915,6 +1926,8 @@ function App() {
         const freeReads=50000,freeWrites=20000,freeDeletes=20000;
         const readPct=Math.round(reads/freeReads*100),writePct=Math.round(writes/freeWrites*100);
         const quotaColor=(p)=>p>80?"#dc2626":p>50?"#fbbf24":"#34d399";
+        // 警告等級：>90% 緊急、>70% 警告
+        const alertLevel=pct>90||readPct>80||writePct>80?"critical":(pct>70||readPct>50||writePct>50?"warning":null);
         const clearAllImages=async()=>{
           if(!window.confirm(`確定移除所有活動的圖片？共 ${Math.round(imgSize/1024)}KB`))return;
           const next={...groups};
@@ -1923,6 +1936,26 @@ function App() {
           if(ok)showToast("🗑 已移除所有圖片");
         };
         return(<>
+          {/* 緊急警告橫幅 */}
+          {alertLevel&&(
+            <div style={{background:alertLevel==="critical"?"#1a0a0a":"#1a1205",border:`2px solid ${alertLevel==="critical"?"#dc2626":"#fbbf24"}`,borderRadius:12,padding:16,marginBottom:12}}>
+              <div style={{fontSize:24,marginBottom:6}}>{alertLevel==="critical"?"🚨":"⚠️"}</div>
+              <div style={{fontWeight:800,fontSize:15,color:alertLevel==="critical"?"#f87171":"#fbbf24",marginBottom:6}}>
+                {alertLevel==="critical"?"容量 / 用量接近上限，請立即處理！":"容量 / 用量開始上升，建議注意"}
+              </div>
+              <div style={{fontSize:12,color:"#dde8f5",lineHeight:1.7}}>
+                {pct>90&&<div>• 💾 最大活動已佔 <b style={{color:"#f87171"}}>{pct}%</b>（接近 1MB 上限），再加圖片或留言可能儲存失敗</div>}
+                {pct>70&&pct<=90&&<div>• 💾 最大活動已佔 <b style={{color:"#fbbf24"}}>{pct}%</b>，建議清理或減少圖片</div>}
+                {readPct>80&&<div>• 👁 今日讀取次數 <b style={{color:"#f87171"}}>{readPct}%</b>，可能被爆量使用</div>}
+                {readPct>50&&readPct<=80&&<div>• 👁 今日讀取次數 <b style={{color:"#fbbf24"}}>{readPct}%</b></div>}
+                {writePct>80&&<div>• ✍ 今日寫入次數 <b style={{color:"#f87171"}}>{writePct}%</b>，接近每日免費上限</div>}
+                {writePct>50&&writePct<=80&&<div>• ✍ 今日寫入次數 <b style={{color:"#fbbf24"}}>{writePct}%</b></div>}
+              </div>
+              <div style={{fontSize:11,color:"#6b8aa8",marginTop:10,paddingTop:10,borderTop:"1px solid #37415133"}}>
+                建議動作：{pct>70?"點下方「🗑 一鍵清除所有圖片」或刪除舊活動。":""}{(readPct>50||writePct>50)?"如果是被爆量，考慮到 Firebase Console 設定安全規則。":""}
+              </div>
+            </div>
+          )}
           <div style={{background:"#080d18",border:`1px solid ${barColor}55`,borderRadius:12,padding:14,marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
               <div style={{fontWeight:700,fontSize:13,color:barColor}}>💾 最大活動容量 {pct}%</div>
@@ -2049,14 +2082,26 @@ function App() {
 
   const isView=tab.startsWith("view-");
   const viewGid=isView?tab.replace("view-",""):null;
-  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 開團中"},{key:"register",label:"📋 報名活動"},{key:"wish",label:"🌟 許願池"},{key:"manage",label:"🔐 團主及管理員"}];
+  // 容量警告等級（用於導覽列上的小紅點）
+  const maxActSize=Math.max(0,...Object.values(groups).map(g=>estimateSize(g)));
+  const capacityPct=Math.round(maxActSize/10000);
+  const dailyU=getDailyUsage();
+  const overallPct=Math.max(capacityPct,Math.round((dailyU.read||0)/50000*100),Math.round((dailyU.write||0)/20000*100));
+  const warnColor=overallPct>90?"#dc2626":overallPct>70?"#fbbf24":null;
+
+  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 開團中"},{key:"register",label:"📋 報名活動"},{key:"wish",label:"🌟 許願池"},{key:"manage",label:"🔐 團主及管理員",warn:warnColor}];
 
   return(
     <div style={S.root}>
       <div className="ju-topbar" style={S.topbar}>
         <h1 className="ju-title" style={S.title}>🎯 JoinUp 揪團神器</h1>
         <div className="ju-nav" style={S.nav}>
-          {navItems.map(({key,label})=><button key={key} style={S.navBtn(tab===key)} onClick={()=>setTab(key)}>{label}</button>)}
+          {navItems.map(({key,label,warn})=>(
+            <button key={key} style={{...S.navBtn(tab===key),position:"relative"}} onClick={()=>setTab(key)}>
+              {label}
+              {warn&&<span style={{position:"absolute",top:6,right:4,width:8,height:8,borderRadius:"50%",background:warn,boxShadow:`0 0 8px ${warn}`}}/>}
+            </button>
+          ))}
           {isView&&<button style={S.navBtn(true)}>📊 活動詳情</button>}
         </div>
       </div>
