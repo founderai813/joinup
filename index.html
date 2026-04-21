@@ -428,7 +428,9 @@ function App() {
   const [toast, setToast] = useState(""); // 保留但不再觸發 App 重渲染（僅給舊程式相容，已改 showToast 走 event bus）
   const [template, setTemplate] = useState(null);
   // 用 useRef 保存開團表單（不觸發 App 重渲染），Tab 內用 local state 初始化自 ref
-  const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",image:"",note:""});
+  const initForm=()=>({id:"",password:"",joinPassword:"",name:"",email:"",contact:"",dateStart:"",dateEnd:"",hours:"",location:"",activityName:"",description:"",cost:"",maxPeople:"",groupType:"open",category:"other",images:[],note:""});
+  // 相容舊資料：舊活動用 image（字串），新活動用 images（陣列）
+  const getImages=(g)=>{if(g?.images?.length>0)return g.images;if(g?.image)return[g.image];return[];};
   const orgFormRef=useRef(initForm());
   const orgSlotsRef=useRef({});
   const orgDoneRef=useRef(null);
@@ -477,7 +479,7 @@ function App() {
 
   // 估算資料大小（位元組）
   const estimateSize=(obj)=>{try{return JSON.stringify(obj).length;}catch{return 0;}};
-  const calcImageSize=(grs)=>Object.values(grs||{}).reduce((s,g)=>s+(g.image?.length||0),0);
+  const calcImageSize=(grs)=>Object.values(grs||{}).reduce((s,g)=>s+getImages(g).reduce((a,img)=>a+(img?.length||0),0),0);
   // 新架構：每個活動一個 Firestore 文件。saveGroups 自動 diff 並寫入／刪除變更項
   const saveGroups=async(next)=>{
     // 檢查每個活動的大小（單 doc 上限 1MB，保留緩衝到 900KB）
@@ -608,9 +610,7 @@ function App() {
       const isExpired=endDate&&endDate<today;
       return(
         <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isExpired?"#37415133":isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start",opacity:isExpired?0.6:1}}>
-          {g.image&&(
-            <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
-          )}
+          {(()=>{const img=getImages(g)[0];return img?<img src={img} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>:null;})()}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -796,9 +796,7 @@ function App() {
       const isExpired=endDate&&endDate<today;
       return(
         <div onClick={()=>setTab("view-"+id)} style={{background:"#080d18",border:`1px solid ${isExpired?"#37415133":isConfirmed?"#34d39944":"#1e2d45"}`,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",display:"flex",gap:12,alignItems:"flex-start",opacity:isExpired?0.6:1}}>
-          {g.image&&(
-            <img src={g.image} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>
-          )}
+          {(()=>{const img=getImages(g)[0];return img?<img src={img} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:10,flexShrink:0,border:"1px solid #1e2d45"}}/>:null;})()}
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
               <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -889,7 +887,7 @@ function App() {
     useEffect(()=>{
       if(template){
         const t=template;
-        const f={...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",image:t.image||"",note:t.note||""};
+        const f={...initForm(),name:t.name||"",email:t.email||"",contact:t.contact||"",hours:t.hours||"",location:t.location||"",activityName:t.activityName||"",description:t.description||"",cost:t.cost||"",maxPeople:t.maxPeople||"",groupType:t.groupType||"open",category:t.category||"other",images:getImages(t),note:t.note||""};
         setForm(f); setOrganizerSlots({}); setDone(null); setIdErr("");
         setTemplate(null);
       }
@@ -899,8 +897,10 @@ function App() {
       const file=e.target.files?.[0]; e.target.value="";
       if(!file)return;
       if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
+      const current=getImages(form);
+      if(current.length>=3){showToast("❌ 最多 3 張圖片");return;}
       setImgLoading(true);
-      try{const dataUrl=await compressImage(file,700,0.65); set("image",dataUrl);}
+      try{const dataUrl=await compressImage(file,700,0.65); set("images",[...current,dataUrl]);}
       catch{showToast("❌ 圖片處理失敗");}
       finally{setImgLoading(false);}
     };
@@ -983,19 +983,26 @@ function App() {
       <div style={{height:14}}/>
       <F label="備註" hint="選填，主揪想補充的資訊（跟團者看得到）"><textarea style={S.textarea} placeholder="例：下雨改期、自備餐具、有寵物…" value={form.note} onChange={e=>set("note",e.target.value)}/></F>
       <div style={{marginTop:14}}>
-        <label style={S.label}>示意圖（選填）</label>
-        {form.image?(
-          <div style={{position:"relative",marginBottom:8}}>
-            <img src={form.image} alt="示意圖" style={{width:"100%",maxHeight:260,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45"}}/>
-            <button type="button" onClick={()=>set("image","")} style={{position:"absolute",top:8,right:8,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 移除</button>
-          </div>
-        ):(
-          <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"20px 14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
-            {imgLoading?"⏳ 處理中…":"📷 點此上傳活動示意圖"}
-            <input type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
-          </label>
-        )}
-        <div style={{fontSize:11,color:"#374a5e",marginTop:4}}>自動壓縮最長邊 900px，建議 &lt; 10MB</div>
+        <label style={S.label}>示意圖（選填，最多 3 張）</label>
+        {(()=>{const imgs=getImages(form);return(<>
+          {imgs.length>0&&(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+              {imgs.map((src,idx)=>(
+                <div key={idx} style={{position:"relative",width:imgs.length===1?"100%":"calc(50% - 4px)"}}>
+                  <img src={src} alt={`圖${idx+1}`} style={{width:"100%",height:imgs.length===1?260:140,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45",display:"block"}}/>
+                  <button type="button" onClick={()=>{const n=[...imgs];n.splice(idx,1);set("images",n);}} style={{position:"absolute",top:6,right:6,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"4px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {imgs.length<3&&(
+            <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"16px 14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
+              {imgLoading?"⏳ 處理中…":`📷 ${imgs.length>0?`再加一張（${imgs.length}/3）`:"點此上傳活動示意圖"}`}
+              <input type="file" accept="image/*" onChange={onPickImage} style={{display:"none"}}/>
+            </label>
+          )}
+        </>);})()}
+        <div style={{fontSize:11,color:"#374a5e",marginTop:4}}>自動壓縮，建議原檔 &lt; 10MB</div>
       </div>
       <div style={{height:20}}/>
       <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:12,padding:16}}>
@@ -1121,11 +1128,13 @@ function App() {
     return(<div style={{margin:"16px 10px"}}>
       {/* 活動資訊卡 */}
       <div style={S.card}>
-        {group.image&&(
-          <div style={{marginBottom:14,marginTop:-6}}>
-            <img src={group.image} alt={group.activityName} style={{width:"100%",maxHeight:360,objectFit:"cover",borderRadius:12,border:"1px solid #1e2d45"}}/>
+        {(()=>{const imgs=getImages(group);if(!imgs.length)return null;return(
+          <div style={{marginBottom:14,marginTop:-6,display:"flex",gap:6,flexWrap:"wrap"}}>
+            {imgs.map((src,i)=>(
+              <img key={i} src={src} alt={`${group.activityName} ${i+1}`} style={{width:imgs.length===1?"100%":"calc(50% - 3px)",maxHeight:imgs.length===1?360:200,objectFit:"cover",borderRadius:12,border:"1px solid #1e2d45"}}/>
+            ))}
           </div>
-        )}
+        );})()}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             <h2 style={{...S.sT,margin:0}}>{group.activityName}</h2>
@@ -1514,8 +1523,10 @@ function App() {
       const file=e.target.files?.[0]; e.target.value="";
       if(!file)return;
       if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
+      const current=getImages(editGroup);
+      if(current.length>=3){showToast("❌ 最多 3 張圖片");return;}
       setImgLoadingAdm(true);
-      try{const dataUrl=await compressImage(file,700,0.65); set("image",dataUrl); showToast("🖼 已更換圖片，記得按儲存");}
+      try{const dataUrl=await compressImage(file,700,0.65); set("images",[...current,dataUrl]); set("image",""); showToast("🖼 已加入圖片，記得按儲存");}
       catch{showToast("❌ 圖片處理失敗");}
       finally{setImgLoadingAdm(false);}
     };
@@ -1681,17 +1692,25 @@ function App() {
         <div style={{height:14}}/>
         <F label="備註" hint="選填，跟團者看得到"><textarea style={S.textarea} value={editGroup?.note||""} onChange={e=>set("note",e.target.value)}/></F>
         <div style={{marginTop:14}}>
-          <label style={S.label}>示意圖</label>
-          {editGroup?.image?(
-            <div style={{position:"relative",marginBottom:8}}>
-              <img src={editGroup.image} alt="示意圖" style={{width:"100%",maxHeight:240,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45"}}/>
-              <button type="button" onClick={()=>set("image","")} style={{position:"absolute",top:8,right:8,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 移除</button>
-            </div>
-          ):null}
-          <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
-            {imgLoadingAdm?"⏳ 處理中…":(editGroup?.image?"📷 更換圖片":"📷 上傳示意圖")}
-            <input type="file" accept="image/*" onChange={onPickImgAdm} style={{display:"none"}}/>
-          </label>
+          <label style={S.label}>示意圖（最多 3 張）</label>
+          {(()=>{const imgs=getImages(editGroup);return(<>
+            {imgs.length>0&&(
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                {imgs.map((src,idx)=>(
+                  <div key={idx} style={{position:"relative",width:imgs.length===1?"100%":"calc(50% - 4px)"}}>
+                    <img src={src} alt={`圖${idx+1}`} style={{width:"100%",height:imgs.length===1?220:130,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45",display:"block"}}/>
+                    <button type="button" onClick={()=>{const n=[...imgs];n.splice(idx,1);set("images",n);set("image","");}} style={{position:"absolute",top:6,right:6,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"4px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {imgs.length<3&&(
+              <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
+                {imgLoadingAdm?"⏳ 處理中…":`📷 ${imgs.length>0?`再加一張（${imgs.length}/3）`:"上傳示意圖"}`}
+                <input type="file" accept="image/*" onChange={onPickImgAdm} style={{display:"none"}}/>
+              </label>
+            )}
+          </>);})()}
         </div>
         <button style={{...S.btn("success"),marginTop:12}} onClick={saveGroupInfo}>💾 儲存</button>
       </div>
@@ -1899,7 +1918,7 @@ function App() {
         const clearAllImages=async()=>{
           if(!window.confirm(`確定移除所有活動的圖片？共 ${Math.round(imgSize/1024)}KB`))return;
           const next={...groups};
-          Object.keys(next).forEach(id=>{if(next[id].image)next[id]={...next[id],image:""};});
+          Object.keys(next).forEach(id=>{next[id]={...next[id],image:"",images:[]};});
           const ok=await saveGroups(next);
           if(ok)showToast("🗑 已移除所有圖片");
         };
