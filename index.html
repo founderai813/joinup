@@ -153,7 +153,8 @@ const compressImage=(file,maxW=800,quality=0.72)=>new Promise((resolve,reject)=>
 const buildShareUrl=(gid)=>`${location.origin}${location.pathname}?a=${encodeURIComponent(gid)}`;
 const buildShareText=(g,url)=>{
   const cat=g.category?(({food:"🍽",sport:"🏃",travel:"✈️",game:"🎲",study:"📚",other:"📌"})[g.category]||"📌"):"";
-  const d=g.confirmed?.finalDate||g.dateStart;
+  // 只有已成團活動才顯示日期，開團中時間未定不顯示
+  const d=g.status==="confirmed"?g.confirmed?.finalDate:null;
   return `${cat?cat+" ":""}${g.activityName||"揪團"}${d?" · "+d:""}${g.location?" · "+g.location:""}\n${url}`;
 };
 const copyToClipboard=async(text)=>{
