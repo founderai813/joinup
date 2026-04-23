@@ -1913,11 +1913,37 @@ function App() {
         })}
       </div>);
     }
+    const [changingPw,setChangingPw]=useState(false);
+    const [newPw,setNewPw]=useState("");
+    const [newPw2,setNewPw2]=useState("");
+    const changeAdminPw=async()=>{
+      if(!newPw.trim()||newPw.length<6){showToast("❗ 密碼至少 6 個字");return;}
+      if(newPw!==newPw2){showToast("❗ 兩次密碼不一致");return;}
+      const hashed=await sha256(newPw);
+      await DB.set("app","admin",{password:hashed});
+      setChangingPw(false);setNewPw("");setNewPw2("");
+      showToast("✅ 管理員密碼已更換！");
+    };
+
     return(<div style={S.card}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
         <h2 style={{...S.sT,margin:0}}>🛡 網頁管理員</h2>
-        <button style={S.btn("ghost")} onClick={()=>{setAuthed(false);setPw("");}}>登出</button>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button style={{...S.btn("warning"),padding:"6px 14px",fontSize:12}} onClick={()=>setChangingPw(p=>!p)}>🔑 改密碼</button>
+          <button style={S.btn("ghost")} onClick={()=>{setAuthed(false);setPw("");}}>登出</button>
+        </div>
       </div>
+      {changingPw&&(
+        <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14,marginBottom:16}}>
+          <div style={{fontWeight:700,color:"#f87171",marginBottom:10,fontSize:13}}>🔑 更換管理員密碼</div>
+          <div style={{marginBottom:10}}><F label="新密碼（至少 6 字）"><input type="password" style={S.input} placeholder="輸入新密碼" value={newPw} onChange={e=>setNewPw(e.target.value)}/></F></div>
+          <div style={{marginBottom:10}}><F label="確認新密碼"><input type="password" style={S.input} placeholder="再輸入一次" value={newPw2} onChange={e=>setNewPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&changeAdminPw()}/></F></div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={S.btn("ghost")} onClick={()=>{setChangingPw(false);setNewPw("");setNewPw2("");}}>取消</button>
+            <button style={{...S.btn("danger"),flex:1}} onClick={changeAdminPw}>確認更換密碼</button>
+          </div>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
         {[["🎪","活動",totalGroups,"#38bdf8"],["🙋","跟團人次",totalJoiners,"#34d399"],["🌟","許願",totalWishes,"#a78bfa"]].map(([icon,label,val,color])=>(
           <div key={label} style={{background:"#080d18",border:`1px solid ${color}33`,borderRadius:12,padding:16,textAlign:"center"}}>
