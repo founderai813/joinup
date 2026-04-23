@@ -1176,6 +1176,21 @@ function App() {
         </div>
       </div>
 
+      {/* 開放團：大家選的時段（限定團隱藏） */}
+      {!isPrivate&&(names.length>0||hasOrgSlots)&&joinStep===0&&(
+        <div style={S.card}>
+          <h3 style={{...S.sT,fontSize:15}}>📅 大家可以的時段 <span style={{fontSize:11,fontWeight:400,color:"#6b8aa8"}}>（{names.length} 人已填）</span></h3>
+          <SlotPicker dates={dates} readOnly countMap={countMap} maxCount={totalCount} intersect={intersect} joiners={allParticipants}/>
+          {intersectList.length>0&&(
+            <div style={{marginTop:12,padding:12,background:"#0a1628",border:"1px solid #38bdf844",borderRadius:10}}>
+              <div style={{fontWeight:700,color:"#38bdf8",marginBottom:6,fontSize:12}}>✨ 所有人都可以的時段</div>
+              {intersectList.map((s,i)=><div key={i} style={{fontSize:12,color:"#bae6fd",marginBottom:2}}>• {s.label}</div>)}
+            </div>
+          )}
+          <div style={{fontSize:10,color:"#374a5e",marginTop:6}}>點格子可查看該時段誰能來</div>
+        </div>
+      )}
+
       {/* 跟團 / 報名區 */}
       {joinStep===0&&(
         <div style={S.card}>
