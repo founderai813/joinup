@@ -1145,7 +1145,6 @@ function App() {
         </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:"5px 14px",fontSize:12,color:"#8aaac8",marginBottom:10}}>
           <span>👤 {group.name}</span>
-          {group.email&&<span>📧 {group.email}</span>}
           {group.contact&&<span>📱 {group.contact}</span>}
           {group.dateStart&&<span>📅 {fmt(group.dateStart)}{group.dateEnd&&group.dateEnd!==group.dateStart?` ～ ${fmt(group.dateEnd)}`:""}</span>}
           {group.hours&&<span>⏱ {group.hours}h</span>}
