@@ -37,16 +37,18 @@
   };
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
-  window._db = db; window._fbReady = true;
-  window.dispatchEvent(new Event("firebase-ready"));
-  // 每日使用量計數（localStorage）
+  // 使用量計數（localStorage）
   const bump=(type,n=1)=>{try{const k="ju_usage_"+new Date().toISOString().slice(0,10);const d=JSON.parse(localStorage.getItem(k)||"{}");d[type]=(d[type]||0)+n;localStorage.setItem(k,JSON.stringify(d));}catch{}};
-  window.dbGet = async (col, id) => { bump("read"); try { const snap = await getDoc(doc(db,col,id)); return snap.exists()?snap.data():null; } catch(e){return null;} };
-  window.dbSet = async (col, id, data) => { bump("write"); try { await setDoc(doc(db,col,id),data); return {ok:true}; } catch(e){console.error("Firestore set failed:",e);return {ok:false,err:e};} };
-  window.dbDel = async (col, id) => { bump("delete"); try { await deleteDoc(doc(db,col,id)); return true; } catch(e){return false;} };
-  window.dbListen = (col, id, cb) => onSnapshot(doc(db,col,id), snap => cb(snap.exists()?snap.data():null));
-  // 讀取整個集合（回傳 {id: data}）
-  window.dbGetAll = async (col) => { try { const snap = await getDocs(collection(db,col)); bump("read",snap.size); const out={}; snap.forEach(d=>{out[d.id]=d.data();}); return out; } catch(e){console.error("dbGetAll failed:",e); return null;} };
+  // 內部 API（不用 window.dbXxx 這種明顯名稱，改用難找的 Symbol-like key）
+  Object.defineProperty(window,"__x7j",{value:Object.freeze({
+    ready:true,
+    g:async(col,id)=>{bump("read");try{const s=await getDoc(doc(db,col,id));return s.exists()?s.data():null;}catch{return null;}},
+    s:async(col,id,data)=>{bump("write");try{await setDoc(doc(db,col,id),data);return{ok:true};}catch(e){console.error(e);return{ok:false,err:e};}},
+    d:async(col,id)=>{bump("delete");try{await deleteDoc(doc(db,col,id));return true;}catch{return false;}},
+    l:(col,id,cb)=>onSnapshot(doc(db,col,id),snap=>cb(snap.exists()?snap.data():null)),
+    ga:async(col)=>{try{const s=await getDocs(collection(db,col));bump("read",s.size);const out={};s.forEach(d=>{out[d.id]=d.data();});return out;}catch{return null;}}
+  }),writable:false,configurable:false,enumerable:false});
+  window.dispatchEvent(new Event("firebase-ready"));
 </script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -196,11 +198,12 @@ const ls = {
   get:(k)=>{try{const v=localStorage.getItem("ju_"+k);return v?JSON.parse(v):null;}catch{return null;}},
   set:(k,v)=>{try{localStorage.setItem("ju_"+k,JSON.stringify(v));}catch{}},
 };
+const _x=()=>window.__x7j;
 const DB = {
-  get: async(col,id)=>{ if(window._fbReady){const d=await window.dbGet(col,id);if(d)return d;} return ls.get(col+"_"+id); },
-  set: async(col,id,data)=>{ ls.set(col+"_"+id,data); if(window._fbReady)return await window.dbSet(col,id,data); return {ok:true}; },
-  del: async(col,id)=>{ ls.set(col+"_"+id,null); if(window._fbReady)return await window.dbDel(col,id); return true; },
-  getAll: async(col)=>{ if(window._fbReady){const d=await window.dbGetAll(col); if(d)return d;} return null; },
+  get: async(col,id)=>{ const x=_x(); if(x?.ready){const d=await x.g(col,id);if(d)return d;} return ls.get(col+"_"+id); },
+  set: async(col,id,data)=>{ ls.set(col+"_"+id,data); const x=_x(); if(x?.ready)return await x.s(col,id,data); return {ok:true}; },
+  del: async(col,id)=>{ ls.set(col+"_"+id,null); const x=_x(); if(x?.ready)return await x.d(col,id); return true; },
+  getAll: async(col)=>{ const x=_x(); if(x?.ready){const d=await x.ga(col); if(d)return d;} return null; },
 };
 // 每日使用量（localStorage 計數）
 const getDailyUsage=()=>{try{const k="ju_usage_"+new Date().toISOString().slice(0,10);return JSON.parse(localStorage.getItem(k)||"{}");}catch{return{};}};
@@ -447,7 +450,7 @@ function App() {
     const init=async()=>{
       // 新架構：先從 activities 集合讀取
       let groupsData=null;
-      if(window._fbReady){
+      if(_x()?.ready){
         const coll=await DB.getAll("activities");
         if(coll&&Object.keys(coll).length>0){
           groupsData=coll;
@@ -473,7 +476,7 @@ function App() {
       setLoading(false);
     };
     const onReady=()=>{setFbReady(true);init();};
-    if(window._fbReady){setFbReady(true);init();}
+    if(_x()?.ready){setFbReady(true);init();}
     else{window.addEventListener("firebase-ready",onReady);init();}
     return()=>window.removeEventListener("firebase-ready",onReady);
   },[]);
@@ -1029,8 +1032,8 @@ function App() {
     const [unlockPw,setUnlockPw]=useState("");
 
     useEffect(()=>{
-      if(window._fbReady&&window.dbListen){
-        const unsub=window.dbListen("activities",gid,(data)=>{if(data)setLocalGroup(data);});
+      if(_x()?.ready){
+        const unsub=_x().l("activities",gid,(data)=>{if(data)setLocalGroup(data);});
         return unsub;
       }else setLocalGroup(groups[gid]||null);
     },[gid]);
