@@ -1,5 +1,5 @@
 // JoinUp Service Worker — network-first 策略，支援離線 fallback
-const CACHE = "joinup-v2-" + "20260423";
+const CACHE = "joinup-v2-" + "20260428";
 const CORE = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

@@ -198,6 +198,23 @@ const ls = {
   get:(k)=>{try{const v=localStorage.getItem("ju_"+k);return v?JSON.parse(v):null;}catch{return null;}},
   set:(k,v)=>{try{localStorage.setItem("ju_"+k,JSON.stringify(v));}catch{}},
 };
+// 掃描 localStorage 找出所有快取的活動（key 格式：ju_activities_<id>）
+const scanLocalActivities=()=>{
+  const out={};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(!k||!k.startsWith("ju_activities_"))continue;
+      const id=k.slice("ju_activities_".length);
+      if(!id)continue;
+      try{
+        const v=JSON.parse(localStorage.getItem(k)||"null");
+        if(v&&typeof v==="object"&&v.activityName)out[id]=v;
+      }catch{}
+    }
+  }catch{}
+  return out;
+};
 const _x=()=>window.__x7j;
 const DB = {
   get: async(col,id)=>{ const x=_x(); if(x?.ready){const d=await x.g(col,id);if(d)return d;} return ls.get(col+"_"+id); },
@@ -449,13 +466,15 @@ function App() {
   useEffect(()=>{
     const init=async()=>{
       let groupsData=null;
+      let cloudCount=0;
       const x=_x();
       console.log("[JoinUp] init, firebase ready:",!!x?.ready);
       if(x?.ready){
         try{
           const coll=await DB.getAll("activities");
-          console.log("[JoinUp] activities collection:",coll?Object.keys(coll).length:"null");
-          if(coll&&Object.keys(coll).length>0){
+          cloudCount=coll?Object.keys(coll).length:0;
+          console.log("[JoinUp] activities collection:",coll?cloudCount:"null");
+          if(coll&&cloudCount>0){
             groupsData=coll;
           }else{
             const old=await DB.get("app","groups");
@@ -471,11 +490,28 @@ function App() {
           }
         }catch(e){console.error("[JoinUp] init error:",e);}
       }
+      // 雲端撈不到 → 從 localStorage 還原（活動快取 / 舊版單檔備援）
       if(!groupsData){
         console.log("[JoinUp] fallback to localStorage");
-        const g=ls.get("app_groups"); if(g?.data)groupsData=g.data;
-        if(!groupsData){
-          const g2=await DB.get("app","groups"); if(g2?.data)groupsData=g2.data;
+        const local=scanLocalActivities();
+        if(Object.keys(local).length>0){
+          console.log("[JoinUp] recovered",Object.keys(local).length,"activities from localStorage");
+          groupsData=local;
+          showToast(`🔄 已從本機還原 ${Object.keys(local).length} 個活動`);
+        }else{
+          const g=ls.get("app_groups"); if(g?.data)groupsData=g.data;
+          if(!groupsData){
+            const g2=await DB.get("app","groups"); if(g2?.data)groupsData=g2.data;
+          }
+          if(groupsData)showToast(`🔄 已從舊版備援還原 ${Object.keys(groupsData).length} 個活動`);
+        }
+        // 雲端是空的但本機還原到資料 → 寫回 Firestore
+        if(groupsData&&x?.ready&&cloudCount===0){
+          console.log("[JoinUp] restoring",Object.keys(groupsData).length,"activities to Firestore");
+          try{
+            await Promise.all(Object.entries(groupsData).map(([id,data])=>DB.set("activities",id,data)));
+            showToast("☁️ 已同步回雲端");
+          }catch(e){console.error("[JoinUp] restore error:",e);}
         }
       }
       if(groupsData){
