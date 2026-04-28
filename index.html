@@ -446,43 +446,84 @@ function App() {
   const [fbReady, setFbReady] = useState(false);
   const showToast=(msg)=>{window.dispatchEvent(new CustomEvent("ju-toast",{detail:msg}));};
 
-  useEffect(()=>{
-    const init=async()=>{
-      let groupsData=null;
-      const x=_x();
-      console.log("[JoinUp] init, firebase ready:",!!x?.ready);
-      if(x?.ready){
-        try{
-          const coll=await DB.getAll("activities");
-          console.log("[JoinUp] activities collection:",coll?Object.keys(coll).length:"null");
-          if(coll&&Object.keys(coll).length>0){
-            groupsData=coll;
-          }else{
-            const old=await DB.get("app","groups");
-            console.log("[JoinUp] old app/groups:",old?.data?Object.keys(old.data).length:"null");
-            if(old?.data&&Object.keys(old.data).length>0){
-              console.log("Migrating",Object.keys(old.data).length,"activities to per-doc…");
-              for(const[id,data]of Object.entries(old.data)){
-                await DB.set("activities",id,data);
-              }
-              groupsData=old.data;
-              showToast("🔄 資料已升級為新架構");
-            }
+  const initRanRef=useRef(false);
+  // 從所有來源（Firestore 新／舊架構、localStorage）盡可能撈出活動資料並合併
+  const recoverAllSources=async()=>{
+    const merged={};
+    const stats={activities:0,oldDoc:0,lsIndividual:0,lsOld:0};
+    const x=_x();
+    if(x?.ready){
+      try{
+        const coll=await DB.getAll("activities");
+        if(coll){
+          for(const[id,data]of Object.entries(coll)){
+            if(data&&!merged[id]){merged[id]=data;stats.activities++;}
           }
-        }catch(e){console.error("[JoinUp] init error:",e);}
-      }
-      if(!groupsData){
-        console.log("[JoinUp] fallback to localStorage");
-        const g=ls.get("app_groups"); if(g?.data)groupsData=g.data;
-        if(!groupsData){
-          const g2=await DB.get("app","groups"); if(g2?.data)groupsData=g2.data;
+        }
+      }catch(e){console.error("[JoinUp] /activities/ error:",e);}
+      try{
+        const old=await x.g("app","groups");
+        if(old?.data){
+          for(const[id,data]of Object.entries(old.data)){
+            if(data&&!merged[id]){merged[id]=data;stats.oldDoc++;}
+          }
+        }
+      }catch(e){console.error("[JoinUp] /app/groups error:",e);}
+    }
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(k&&k.startsWith("ju_activities_")){
+          const id=k.slice("ju_activities_".length);
+          if(!merged[id]){
+            const v=ls.get("activities_"+id);
+            if(v){merged[id]=v;stats.lsIndividual++;}
+          }
         }
       }
-      if(groupsData){
-        console.log("[JoinUp] loaded",Object.keys(groupsData).length,"activities");
-        setGroups(groupsData);
+    }catch(e){console.error(e);}
+    try{
+      const lg=ls.get("app_groups");
+      if(lg?.data){
+        for(const[id,data]of Object.entries(lg.data)){
+          if(data&&!merged[id]){merged[id]=data;stats.lsOld++;}
+        }
+      }
+    }catch(e){console.error(e);}
+    return{merged,stats};
+  };
+
+  useEffect(()=>{
+    const init=async()=>{
+      if(initRanRef.current)return;
+      initRanRef.current=true;
+      const x=_x();
+      console.log("[JoinUp] init, firebase ready:",!!x?.ready);
+      const{merged,stats}=await recoverAllSources();
+      const total=Object.keys(merged).length;
+      console.log("[JoinUp] recovered",total,"activities — sources:",stats);
+      // 把舊來源的資料寫回新架構（避免下次又從舊位置讀）
+      if(x?.ready&&total>0){
+        try{
+          const inActivities=await DB.getAll("activities");
+          const haveIds=new Set(inActivities?Object.keys(inActivities):[]);
+          let restored=0;
+          for(const[id,data]of Object.entries(merged)){
+            if(!haveIds.has(id)){
+              await DB.set("activities",id,data);
+              restored++;
+            }
+          }
+          if(restored>0){
+            console.log("[JoinUp] restored",restored,"activities to /activities/");
+            showToast(`🔄 已恢復 ${restored} 筆活動`);
+          }
+        }catch(e){console.error("[JoinUp] restore error:",e);}
+      }
+      if(total>0){
+        setGroups(merged);
       }else{
-        console.warn("[JoinUp] NO DATA FOUND");
+        console.warn("[JoinUp] NO DATA FOUND from any source");
       }
       const w=await DB.get("app","wishes"); if(w?.data)setWishes(w.data);
       setLoading(false);
@@ -492,6 +533,12 @@ function App() {
     else{window.addEventListener("firebase-ready",onReady);init();}
     return()=>window.removeEventListener("firebase-ready",onReady);
   },[]);
+
+  // 取得最新活動資料的安全版本：合併 server 與 React state，避免 server 回傳空集合時誤刪
+  const getLatestSafe=async()=>{
+    const remote=await DB.getAll("activities");
+    return{...groups,...(remote||{})};
+  };
 
   // 估算資料大小（位元組）
   const estimateSize=(obj)=>{try{return JSON.stringify(obj).length;}catch{return 0;}};
@@ -1083,7 +1130,7 @@ function App() {
       if(!name.trim()){showToast("❗ 請填寫姓名");return;}
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       setSubmitting(true);
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[gid];
       if(!latestGroup){showToast("❌ 活動不存在");setSubmitting(false);return;}
       const latestJoiners=latestGroup.joiners||{};
@@ -1100,7 +1147,7 @@ function App() {
       if(!name.trim()){showToast("❗ 請填寫姓名");return;}
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       setSubmitting(true);
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[gid];
       if(!latestGroup){showToast("❌ 活動不存在");setSubmitting(false);return;}
       const waitlist=latestGroup.waitlist||{};
@@ -1114,7 +1161,7 @@ function App() {
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
       if(!contact.trim()){showToast("❗ 請填寫聯絡方式");return;}
       setSubmitting(true);
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[gid];
       const latestJoiners=latestGroup.joiners||{};
       const next={...latest,[gid]:{...latestGroup,joiners:{...latestJoiners,[name.trim()]:{email,contact,registeredAt:Date.now(),isRegistered:true}}}};
@@ -1258,7 +1305,7 @@ function App() {
               {myEntry.data.note&&<div style={{fontSize:11,color:"#6b8aa8",marginTop:3}}>備註：{myEntry.data.note}</div>}
               <button style={{...S.btn("danger"),marginTop:10,padding:"6px 14px",fontSize:12}} onClick={async()=>{
                 if(!window.confirm(`確定取消「${myEntry.name}」的報名？`))return;
-                const latest=(await DB.getAll("activities"))||groups;
+                const latest=await getLatestSafe();
                 const lg=latest[gid]; if(!lg)return;
                 const field=myEntry.waitlist?"waitlist":"joiners";
                 const n={...(lg[field]||{})}; delete n[myEntry.name];
@@ -1465,7 +1512,7 @@ function App() {
       if(!cName.trim()){showToast("❗ 請填寫名字");return;}
       if(!cText.trim()){showToast("❗ 請填寫留言");return;}
       setPosting(true);
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const lg=latest[gid]; if(!lg){setPosting(false);return;}
       const next={...latest,[gid]:{...lg,comments:[...(lg.comments||[]),{name:cName.trim(),text:cText.trim(),time:Date.now()}]}};
       await saveGroups(next);
@@ -1521,7 +1568,7 @@ function App() {
     const dates=group?getDates(group):null;
     const saveGroupInfo=async()=>{
       // 先抓最新資料，避免覆蓋到最新的跟團者 / 候補 / 留言
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[authedId]||groups[authedId]||{};
       const merged={
         ...latestGroup,
@@ -1537,11 +1584,11 @@ function App() {
       setEditGroup({...merged});
       showToast("✅ 已更新");
     };
-    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latest=(await DB.getAll("activities"))||groups;const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
-    const deleteJoiner=async(name)=>{const latest=(await DB.getAll("activities"))||groups;const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
+    const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latest=await getLatestSafe();const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
+    const deleteJoiner=async(name)=>{const latest=await getLatestSafe();const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
     const openEditJoiner=(name)=>{const data=groups[authedId].joiners[name];setEditJoiner({name,note:data.note||""});setEditSlots({...(data.slots||{})});};
     const saveJoiner=async()=>{
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const lg=latest[authedId]; if(!lg)return;
       const nj={...(lg.joiners||{}),[editJoiner.name]:{...(lg.joiners?.[editJoiner.name]||{}),slots:editSlots,note:editJoiner.note}};
       const next={...latest,[authedId]:{...lg,joiners:nj}};
@@ -1562,7 +1609,7 @@ function App() {
     };
     const openEditOrgSlots=()=>{setOrgSlotsDraft({...(groups[authedId]?.organizerSlots||{})});setEditingOrgSlots(true);};
     const saveOrgSlots=async()=>{
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,organizerSlots:orgSlotsDraft}};
       await saveGroups(next); setEditingOrgSlots(false); showToast("✅ 已更新時段");
@@ -1570,13 +1617,13 @@ function App() {
 
     // 已成案
     const markConfirmed=async()=>{
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,status:"confirmed",confirmed:{...confirmedDraft,confirmedAt:Date.now()}}};
       await saveGroups(next); setEditingConfirmed(false); showToast("✅ 已標記為成團！");
     };
     const unmarkConfirmed=async()=>{
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const latestGroup=latest[authedId]||{};
       const next={...latest,[authedId]:{...latestGroup,status:"open",confirmed:null}};
       await saveGroups(next); showToast("✅ 已取消成團標記");
@@ -1791,7 +1838,7 @@ function App() {
         const wnames=Object.keys(wl);
         if(wnames.length===0)return null;
         const promote=async(n)=>{
-          const latest=(await DB.getAll("activities"))||groups;
+          const latest=await getLatestSafe();
           const lg=latest[authedId]; if(!lg)return;
           const latestWl=lg.waitlist||{};
           const person=latestWl[n]||wl[n];
@@ -1802,7 +1849,7 @@ function App() {
         };
         const delWait=async(n)=>{
           if(!window.confirm(`確定從候補刪除 ${n}？`))return;
-          const latest=(await DB.getAll("activities"))||groups;
+          const latest=await getLatestSafe();
           const lg=latest[authedId]; if(!lg)return;
           const nwl={...(lg.waitlist||{})}; delete nwl[n];
           const next={...latest,[authedId]:{...lg,waitlist:nwl}};
@@ -1845,6 +1892,7 @@ function App() {
     const [changingPw,setChangingPw]=useState(false);
     const [newPw,setNewPw]=useState("");
     const [newPw2,setNewPw2]=useState("");
+    const [recovering,setRecovering]=useState(false);
     const login=async()=>{
       if(!pw.trim()){showToast("❗ 請輸入密碼");return;}
       const d=await DB.get("app","admin");
@@ -1866,12 +1914,12 @@ function App() {
     };
     const allIds=Object.keys(groups);
     const totalGroups=allIds.length,totalJoiners=allIds.reduce((s,id)=>s+Object.keys(groups[id].joiners||{}).length,0),totalWishes=wishes.length;
-    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const latest=(await DB.getAll("activities"))||groups;const next={...latest};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
-    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const latest=(await DB.getAll("activities"))||groups;const lg=latest[gid];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[gid]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
+    const deleteGroup=async(id)=>{if(!window.confirm(`確定刪除「${groups[id]?.activityName}」？`))return;const latest=await getLatestSafe();const next={...latest};delete next[id];await saveGroups(next);showToast("🗑 已刪除");setSubPage("dashboard");};
+    const deleteJoiner=async(gid,name)=>{if(!window.confirm(`確定刪除「${name}」？`))return;const latest=await getLatestSafe();const lg=latest[gid];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[gid]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除`);setSubPage("group-"+gid);};
     const openEditJoiner=(gid,name)=>{const d=groups[gid].joiners[name];setEditJoiner({gid,name,note:d.note||""});setEditSlots({...(d.slots||{})});setSubPage("joiner-"+gid+"-"+name);};
     const saveJoiner=async()=>{
       const{gid,name}=editJoiner;
-      const latest=(await DB.getAll("activities"))||groups;
+      const latest=await getLatestSafe();
       const lg=latest[gid]; if(!lg)return;
       const nj={...(lg.joiners||{}),[name]:{...(lg.joiners?.[name]||{}),slots:editSlots,note:editJoiner.note}};
       const next={...latest,[gid]:{...lg,joiners:nj}};
@@ -1939,11 +1987,39 @@ function App() {
       setChangingPw(false);setNewPw("");setNewPw2("");
       showToast("✅ 管理員密碼已更換！");
     };
+    const rescanData=async()=>{
+      if(recovering)return;
+      setRecovering(true);
+      try{
+        const{merged,stats}=await recoverAllSources();
+        const total=Object.keys(merged).length;
+        const known=Object.keys(groups).length;
+        // 寫回新架構（只寫目前不在 /activities/ 的）
+        const x=_x();
+        let restored=0;
+        if(x?.ready&&total>0){
+          const inActivities=await DB.getAll("activities");
+          const haveIds=new Set(inActivities?Object.keys(inActivities):[]);
+          for(const[id,data]of Object.entries(merged)){
+            if(!haveIds.has(id)){await DB.set("activities",id,data);restored++;}
+          }
+        }
+        // 把合併結果套回 React state（避免覆蓋掉比較新的本地狀態：以 server 為準）
+        setGroups(prev=>({...prev,...merged}));
+        const detail=`新集合 ${stats.activities}｜舊文件 ${stats.oldDoc}｜本機個別 ${stats.lsIndividual}｜本機舊 ${stats.lsOld}`;
+        showToast(`🔎 共 ${total} 筆（原本 ${known}），新寫回 ${restored}　${detail}`);
+        console.log("[JoinUp] manual rescan:",{total,known,restored,stats});
+      }catch(e){
+        console.error(e);
+        showToast("❌ 掃描失敗："+(e?.message||e));
+      }finally{setRecovering(false);}
+    };
 
     return(<div style={S.card}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
         <h2 style={{...S.sT,margin:0}}>🛡 網頁管理員</h2>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button style={{...S.btn("secondary"),padding:"6px 14px",fontSize:12}} disabled={recovering} onClick={rescanData}>{recovering?"掃描中…":"🔄 重新掃描資料"}</button>
           <button style={{...S.btn("warning"),padding:"6px 14px",fontSize:12}} onClick={()=>setChangingPw(p=>!p)}>🔑 改密碼</button>
           <button style={S.btn("ghost")} onClick={()=>{setAuthed(false);setPw("");}}>登出</button>
         </div>
