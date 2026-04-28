@@ -262,15 +262,18 @@ function ToastOverlay() {
   const timerRef = useRef();
   useEffect(() => {
     const handler = (e) => {
-      setMsg(e.detail);
+      const m=e.detail||"";
+      setMsg(m);
       clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setMsg(""), 2800);
+      // 訊息長就多停一下，讓手機使用者看完
+      const dur=m.length>40?5500:2800;
+      timerRef.current = setTimeout(() => setMsg(""), dur);
     };
     window.addEventListener("ju-toast", handler);
     return () => window.removeEventListener("ju-toast", handler);
   }, []);
   if (!msg) return null;
-  return (<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"nowrap",maxWidth:"90vw",textAlign:"center"}}>{msg}</div>);
+  return (<div onClick={()=>setMsg("")} style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#0f1729",border:"1px solid #38bdf8",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,color:"#38bdf8",zIndex:999,boxShadow:"0 4px 24px #38bdf822",whiteSpace:"normal",maxWidth:"92vw",textAlign:"center",lineHeight:1.5,cursor:"pointer"}}>{msg}</div>);
 }
 const showToastGlobal = (msg) => window.dispatchEvent(new CustomEvent("ju-toast", {detail: msg}));
 
@@ -444,6 +447,8 @@ function App() {
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fbReady, setFbReady] = useState(false);
+  const [recoveryInfo, setRecoveryInfo] = useState(null); // {total, restored, stats}
+  const [recovering, setRecovering] = useState(false);
   const showToast=(msg)=>{window.dispatchEvent(new CustomEvent("ju-toast",{detail:msg}));};
 
   const initRanRef=useRef(false);
@@ -503,11 +508,11 @@ function App() {
       const total=Object.keys(merged).length;
       console.log("[JoinUp] recovered",total,"activities — sources:",stats);
       // 把舊來源的資料寫回新架構（避免下次又從舊位置讀）
+      let restored=0;
       if(x?.ready&&total>0){
         try{
           const inActivities=await DB.getAll("activities");
           const haveIds=new Set(inActivities?Object.keys(inActivities):[]);
-          let restored=0;
           for(const[id,data]of Object.entries(merged)){
             if(!haveIds.has(id)){
               await DB.set("activities",id,data);
@@ -520,6 +525,7 @@ function App() {
           }
         }catch(e){console.error("[JoinUp] restore error:",e);}
       }
+      setRecoveryInfo({total,restored,stats,at:Date.now()});
       if(total>0){
         setGroups(merged);
       }else{
@@ -538,6 +544,32 @@ function App() {
   const getLatestSafe=async()=>{
     const remote=await DB.getAll("activities");
     return{...groups,...(remote||{})};
+  };
+
+  // 任何使用者都可以觸發的重新掃描（首頁面板用）
+  const rescanData=async()=>{
+    if(recovering)return;
+    setRecovering(true);
+    try{
+      const{merged,stats}=await recoverAllSources();
+      const total=Object.keys(merged).length;
+      const x=_x();
+      let restored=0;
+      if(x?.ready&&total>0){
+        const inActivities=await DB.getAll("activities");
+        const haveIds=new Set(inActivities?Object.keys(inActivities):[]);
+        for(const[id,data]of Object.entries(merged)){
+          if(!haveIds.has(id)){await DB.set("activities",id,data);restored++;}
+        }
+      }
+      setGroups(prev=>({...prev,...merged}));
+      setRecoveryInfo({total,restored,stats,at:Date.now()});
+      const detail=`新集合 ${stats.activities}｜舊文件 ${stats.oldDoc}｜本機個別 ${stats.lsIndividual}｜本機舊 ${stats.lsOld}`;
+      showToast(`🔎 共找到 ${total} 筆，新寫回 ${restored} 筆\n${detail}`);
+    }catch(e){
+      console.error(e);
+      showToast("❌ 掃描失敗："+(e?.message||e));
+    }finally{setRecovering(false);}
   };
 
   // 估算資料大小（位元組）
@@ -718,6 +750,40 @@ function App() {
     };
 
     return(<div style={{padding:"0 10px"}}>
+      {/* 資料恢復面板：手機看不到 console，把恢復狀況直接顯示在這 */}
+      {recoveryInfo&&(()=>{
+        const{total,restored,stats}=recoveryInfo;
+        const dataMissing=total===0;
+        const ok=total>0&&restored===0;
+        const recovered=restored>0;
+        const bg=dataMissing?"#1a0a0a":recovered?"#0a1a14":"#0a1422";
+        const border=dataMissing?"#dc262655":recovered?"#34d39955":"#1e2d45";
+        const color=dataMissing?"#f87171":recovered?"#34d399":"#8aaac8";
+        const icon=dataMissing?"🚨":recovered?"✅":"📊";
+        return(<div style={{...S.card,background:bg,border:`1px solid ${border}`,marginBottom:12}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:8}}>
+            <div style={{fontWeight:800,fontSize:14,color}}>{icon} 資料載入狀態</div>
+            <button style={{...S.btn("primary"),padding:"6px 14px",fontSize:12}} disabled={recovering} onClick={rescanData}>{recovering?"掃描中…":"🔄 重新掃描"}</button>
+          </div>
+          <div style={{fontSize:13,color:"#dde8f5",lineHeight:1.7}}>
+            {dataMissing&&<div style={{color:"#f87171",fontWeight:700,marginBottom:6}}>⚠ 所有來源都沒有找到揪團資料</div>}
+            {recovered&&<div style={{color:"#34d399",fontWeight:700,marginBottom:6}}>🎉 已從備份位置恢復 {restored} 筆活動到雲端</div>}
+            {ok&&<div style={{marginBottom:6}}>共載入 <b style={{color:"#38bdf8"}}>{total}</b> 筆活動</div>}
+          </div>
+          <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.8,paddingTop:8,borderTop:`1px solid ${border}`}}>
+            <div>☁️ Firestore 新集合：<b style={{color:stats.activities>0?"#34d399":"#6b8aa8"}}>{stats.activities}</b> 筆</div>
+            <div>📦 Firestore 舊文件：<b style={{color:stats.oldDoc>0?"#fbbf24":"#6b8aa8"}}>{stats.oldDoc}</b> 筆</div>
+            <div>📱 本機個別快取：<b style={{color:stats.lsIndividual>0?"#a78bfa":"#6b8aa8"}}>{stats.lsIndividual}</b> 筆</div>
+            <div>📱 本機舊快取：<b style={{color:stats.lsOld>0?"#a78bfa":"#6b8aa8"}}>{stats.lsOld}</b> 筆</div>
+          </div>
+          {dataMissing&&(
+            <div style={{marginTop:10,padding:10,background:"#080d18",border:"1px dashed #dc262655",borderRadius:8,fontSize:12,color:"#9a6a6a",lineHeight:1.6}}>
+              如果你之前用過這台手機開啟過揪團，請點上面的「🔄 重新掃描」再試一次。如果還是 0 筆，代表四個來源都已經被清空，需要從 Firebase Console 的時光機（PITR）恢復。
+            </div>
+          )}
+        </div>);
+      })()}
+
       {/* 使用教學 */}
       <div style={{...S.card,marginBottom:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowGuide(p=>!p)}>
@@ -1892,7 +1958,6 @@ function App() {
     const [changingPw,setChangingPw]=useState(false);
     const [newPw,setNewPw]=useState("");
     const [newPw2,setNewPw2]=useState("");
-    const [recovering,setRecovering]=useState(false);
     const login=async()=>{
       if(!pw.trim()){showToast("❗ 請輸入密碼");return;}
       const d=await DB.get("app","admin");
@@ -1987,34 +2052,6 @@ function App() {
       setChangingPw(false);setNewPw("");setNewPw2("");
       showToast("✅ 管理員密碼已更換！");
     };
-    const rescanData=async()=>{
-      if(recovering)return;
-      setRecovering(true);
-      try{
-        const{merged,stats}=await recoverAllSources();
-        const total=Object.keys(merged).length;
-        const known=Object.keys(groups).length;
-        // 寫回新架構（只寫目前不在 /activities/ 的）
-        const x=_x();
-        let restored=0;
-        if(x?.ready&&total>0){
-          const inActivities=await DB.getAll("activities");
-          const haveIds=new Set(inActivities?Object.keys(inActivities):[]);
-          for(const[id,data]of Object.entries(merged)){
-            if(!haveIds.has(id)){await DB.set("activities",id,data);restored++;}
-          }
-        }
-        // 把合併結果套回 React state（避免覆蓋掉比較新的本地狀態：以 server 為準）
-        setGroups(prev=>({...prev,...merged}));
-        const detail=`新集合 ${stats.activities}｜舊文件 ${stats.oldDoc}｜本機個別 ${stats.lsIndividual}｜本機舊 ${stats.lsOld}`;
-        showToast(`🔎 共 ${total} 筆（原本 ${known}），新寫回 ${restored}　${detail}`);
-        console.log("[JoinUp] manual rescan:",{total,known,restored,stats});
-      }catch(e){
-        console.error(e);
-        showToast("❌ 掃描失敗："+(e?.message||e));
-      }finally{setRecovering(false);}
-    };
-
     return(<div style={S.card}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
         <h2 style={{...S.sT,margin:0}}>🛡 網頁管理員</h2>
