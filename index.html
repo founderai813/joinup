@@ -448,34 +448,46 @@ function App() {
 
   useEffect(()=>{
     const init=async()=>{
-      // 新架構：先從 activities 集合讀取
       let groupsData=null;
-      if(_x()?.ready){
-        const coll=await DB.getAll("activities");
-        if(coll&&Object.keys(coll).length>0){
-          groupsData=coll;
-        }else{
-          // 遷移舊資料：從 app/groups 移到 activities 集合
-          const old=await DB.get("app","groups");
-          if(old?.data&&Object.keys(old.data).length>0){
-            console.log("Migrating",Object.keys(old.data).length,"activities to per-doc…");
-            for(const[id,data]of Object.entries(old.data)){
-              await DB.set("activities",id,data);
+      const x=_x();
+      console.log("[JoinUp] init, firebase ready:",!!x?.ready);
+      if(x?.ready){
+        try{
+          const coll=await DB.getAll("activities");
+          console.log("[JoinUp] activities collection:",coll?Object.keys(coll).length:"null");
+          if(coll&&Object.keys(coll).length>0){
+            groupsData=coll;
+          }else{
+            const old=await DB.get("app","groups");
+            console.log("[JoinUp] old app/groups:",old?.data?Object.keys(old.data).length:"null");
+            if(old?.data&&Object.keys(old.data).length>0){
+              console.log("Migrating",Object.keys(old.data).length,"activities to per-doc…");
+              for(const[id,data]of Object.entries(old.data)){
+                await DB.set("activities",id,data);
+              }
+              groupsData=old.data;
+              showToast("🔄 資料已升級為新架構");
             }
-            groupsData=old.data;
-            showToast("🔄 資料已升級為新架構");
           }
-        }
+        }catch(e){console.error("[JoinUp] init error:",e);}
       }
       if(!groupsData){
-        // 離線：用 localStorage 裡的舊備援
-        const g=await DB.get("app","groups"); if(g?.data)groupsData=g.data;
+        console.log("[JoinUp] fallback to localStorage");
+        const g=ls.get("app_groups"); if(g?.data)groupsData=g.data;
+        if(!groupsData){
+          const g2=await DB.get("app","groups"); if(g2?.data)groupsData=g2.data;
+        }
       }
-      if(groupsData)setGroups(groupsData);
+      if(groupsData){
+        console.log("[JoinUp] loaded",Object.keys(groupsData).length,"activities");
+        setGroups(groupsData);
+      }else{
+        console.warn("[JoinUp] NO DATA FOUND");
+      }
       const w=await DB.get("app","wishes"); if(w?.data)setWishes(w.data);
       setLoading(false);
     };
-    const onReady=()=>{setFbReady(true);init();};
+    const onReady=()=>{console.log("[JoinUp] firebase-ready event");setFbReady(true);init();};
     if(_x()?.ready){setFbReady(true);init();}
     else{window.addEventListener("firebase-ready",onReady);init();}
     return()=>window.removeEventListener("firebase-ready",onReady);
