@@ -443,6 +443,9 @@ function App() {
   const orgDoneRef=useRef(null);
   const orgIdErrRef=useRef("");
   const orgImgLoadingRef=useRef(false);
+  // 登入狀態用 ref 保存，避免 App 重渲染導致 AdminTab / SuperAdminTab 被重新掛載而登出
+  const adminAuthedIdRef=useRef(null);
+  const superAuthedRef=useRef(false);
   const [groups, setGroups] = useState({});
   const [wishes, setWishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1611,9 +1614,13 @@ function App() {
 
   // ── ADMIN ──
   const AdminTab=()=>{
-    const [step,setStep]=useState(1);
-    const [gid,setGid]=useState(""), [pw,setPw]=useState(""), [authedId,setAuthedId]=useState(null);
-    const [editGroup,setEditGroup]=useState(null),[editJoiner,setEditJoiner]=useState(null),[editSlots,setEditSlots]=useState({});
+    // 從 ref 還原登入狀態，避免 App 重渲染時被登出
+    const initAuthedId=adminAuthedIdRef.current&&groups[adminAuthedIdRef.current]?adminAuthedIdRef.current:null;
+    const [step,setStep]=useState(initAuthedId?2:1);
+    const [gid,setGid]=useState(""), [pw,setPw]=useState(""), [authedIdRaw,setAuthedIdRaw]=useState(initAuthedId);
+    const authedId=authedIdRaw;
+    const setAuthedId=(v)=>{adminAuthedIdRef.current=v;setAuthedIdRaw(v);};
+    const [editGroup,setEditGroup]=useState(initAuthedId?{...groups[initAuthedId]}:null),[editJoiner,setEditJoiner]=useState(null),[editSlots,setEditSlots]=useState({});
     const [editingOrgSlots,setEditingOrgSlots]=useState(false),[orgSlotsDraft,setOrgSlotsDraft]=useState({});
     const [editingConfirmed,setEditingConfirmed]=useState(false);
     const [confirmedDraft,setConfirmedDraft]=useState({finalDate:"",finalSlot:"",finalLocation:"",allowJoin:true});
@@ -1952,7 +1959,9 @@ function App() {
 
   // ── SUPERADMIN ──
   const SuperAdminTab=()=>{
-    const [authed,setAuthed]=useState(false),[pw,setPw]=useState("");
+    const [authedRaw,setAuthedRaw]=useState(superAuthedRef.current),[pw,setPw]=useState("");
+    const authed=authedRaw;
+    const setAuthed=(v)=>{superAuthedRef.current=v;setAuthedRaw(v);};
     const [subPage,setSubPage]=useState("dashboard");
     const [editJoiner,setEditJoiner]=useState(null),[editSlots,setEditSlots]=useState({});
     const [changingPw,setChangingPw]=useState(false);
@@ -2283,7 +2292,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260428a · 揪團神器</div>
+      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260506a · 揪團神器</div>
       <ToastOverlay/>
     </div>
   );
