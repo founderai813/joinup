@@ -1933,6 +1933,10 @@ function App() {
     const [editGroup,setEditGroup]=useState(null);
     const [imgLoadingAdm,setImgLoadingAdm]=useState(false);
     const [editingOrgSlots,setEditingOrgSlots]=useState(false),[orgSlotsDraft,setOrgSlotsDraft]=useState({});
+    const [orgSlotsEditGid,setOrgSlotsEditGid]=useState(null);
+    const [editingConfirmed,setEditingConfirmed]=useState(false);
+    const [confirmedDraft,setConfirmedDraft]=useState({finalDate:"",finalSlot:"",finalLocation:"",allowJoin:true});
+    const [confirmedEditGid,setConfirmedEditGid]=useState(null);
     const [changingPw,setChangingPw]=useState(false);
     const [newPw,setNewPw]=useState("");
     const [newPw2,setNewPw2]=useState("");
@@ -2002,31 +2006,108 @@ function App() {
       setEditGroup({...merged,gid});
       showToast("✅ 已更新活動資訊");
     };
-    const openEditOrgSlots=(gid)=>{setOrgSlotsDraft({...(groups[gid]?.organizerSlots||{})});setEditingOrgSlots(true);};
+    const openEditOrgSlots=(gid)=>{setOrgSlotsEditGid(gid);setOrgSlotsDraft({...(groups[gid]?.organizerSlots||{})});setEditingOrgSlots(true);};
     const saveOrgSlots=async()=>{
-      if(!editGroup?.gid)return;
-      const gid=editGroup.gid;
+      const gid=orgSlotsEditGid||editGroup?.gid;
+      if(!gid)return;
       const latest=await getLatestSafe();
       const latestGroup=latest[gid]||{};
       const next={...latest,[gid]:{...latestGroup,organizerSlots:orgSlotsDraft}};
-      await saveGroups(next); setEditingOrgSlots(false); showToast("✅ 已更新主揪時段");
+      await saveGroups(next);
+      if(editGroup?.gid===gid)setEditGroup(p=>({...p,organizerSlots:orgSlotsDraft}));
+      setEditingOrgSlots(false); setOrgSlotsEditGid(null);
+      showToast("✅ 已更新主揪時段");
+    };
+    const openEditConfirmed=(gid,initial)=>{
+      setConfirmedEditGid(gid);
+      setConfirmedDraft(initial||{finalDate:"",finalSlot:"",finalLocation:"",allowJoin:true});
+      setEditingConfirmed(true);
+    };
+    const markConfirmed=async()=>{
+      const gid=confirmedEditGid; if(!gid)return;
+      const latest=await getLatestSafe();
+      const latestGroup=latest[gid]||{};
+      const next={...latest,[gid]:{...latestGroup,status:"confirmed",confirmed:{...confirmedDraft,confirmedAt:Date.now()}}};
+      await saveGroups(next);
+      setEditingConfirmed(false); setConfirmedEditGid(null);
+      showToast("✅ 已標記為成團！");
+    };
+    const unmarkConfirmed=async(gid)=>{
+      const latest=await getLatestSafe();
+      const latestGroup=latest[gid]||{};
+      const next={...latest,[gid]:{...latestGroup,status:"open",confirmed:null}};
+      await saveGroups(next); showToast("✅ 已取消成團標記");
+    };
+    const promoteWaitlist=async(gid,name)=>{
+      const latest=await getLatestSafe();
+      const lg=latest[gid]; if(!lg)return;
+      const wl=lg.waitlist||{}, person=wl[name];
+      if(!person)return;
+      const nj={...(lg.joiners||{}),[name]:person};
+      const nwl={...wl}; delete nwl[name];
+      const next={...latest,[gid]:{...lg,joiners:nj,waitlist:nwl}};
+      await saveGroups(next); showToast(`✅ 已將 ${name} 遞補上正式名單`);
+    };
+    const deleteWaitlistEntry=async(gid,name)=>{
+      if(!window.confirm(`確定從候補刪除 ${name}？`))return;
+      const latest=await getLatestSafe();
+      const lg=latest[gid]; if(!lg)return;
+      const nwl={...(lg.waitlist||{})}; delete nwl[name];
+      const next={...latest,[gid]:{...lg,waitlist:nwl}};
+      await saveGroups(next); showToast(`🗑 已刪除`);
     };
     if(!authed)return(<div style={S.card}>
       <h2 style={S.sT}>🛡 網頁管理員</h2>
       <div style={{marginBottom:16}}><F label="管理員密碼"><input type="password" style={S.input} placeholder="管理員密碼" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()}/></F></div>
       <button style={{...S.btn("primary"),width:"100%"}} onClick={login}>登入 →</button>
     </div>);
-    if(subPage.startsWith("edit-")&&editGroup){
-      const gid=editGroup.gid;
-      const dates=getDates(editGroup);
-      if(editingOrgSlots)return(<div style={S.card}>
-        <h2 style={S.sT}>📅 修改主揪時段</h2>
-        {dates?<SlotPicker dates={dates} mySlots={orgSlotsDraft} setMySlots={setOrgSlotsDraft} otherJoiners={groups[gid]?.joiners||{}}/>:<div style={{color:"#f87171",fontSize:13}}>請先設定活動日期</div>}
+    if(editingOrgSlots){
+      const gid=orgSlotsEditGid||editGroup?.gid;
+      const g=gid?groups[gid]:null;
+      const dates=g?getDates(g):null;
+      return(<div style={S.card}>
+        <h2 style={S.sT}>📅 修改主揪時段{g?.activityName?`：${g.activityName}`:""}</h2>
+        {dates?<SlotPicker dates={dates} mySlots={orgSlotsDraft} setMySlots={setOrgSlotsDraft} otherJoiners={g?.joiners||{}}/>:<div style={{color:"#f87171",fontSize:13}}>請先設定活動日期</div>}
         <div style={{display:"flex",gap:10,marginTop:16}}>
-          <button style={S.btn("ghost")} onClick={()=>setEditingOrgSlots(false)}>← 返回</button>
+          <button style={S.btn("ghost")} onClick={()=>{setEditingOrgSlots(false);setOrgSlotsEditGid(null);}}>← 返回</button>
           <button style={{...S.btn("success"),flex:1}} onClick={saveOrgSlots}>💾 儲存時段</button>
         </div>
       </div>);
+    }
+    if(editingConfirmed){
+      const gid=confirmedEditGid;
+      const g=gid?groups[gid]:null;
+      return(<div style={S.card}>
+        <h2 style={S.sT}>✅ 設定確定活動資訊{g?.activityName?`：${g.activityName}`:""}</h2>
+        <div style={{marginBottom:14}}><F label="確定日期" required><DateInput value={confirmedDraft.finalDate} onChange={v=>setConfirmedDraft(p=>({...p,finalDate:v}))}/></F></div>
+        <div style={{marginBottom:14}}>
+          <label style={S.label}>確定時段 <span style={{color:"#f87171"}}>*</span></label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {TIME_SLOTS.map(s=>(
+              <div key={s.key} onClick={()=>setConfirmedDraft(p=>({...p,finalSlot:s.label}))} style={{padding:"8px 14px",borderRadius:8,border:`2px solid ${confirmedDraft.finalSlot===s.label?s.color:"#1e2d45"}`,background:confirmedDraft.finalSlot===s.label?s.color+"22":"#080d18",cursor:"pointer",fontSize:13,fontWeight:700,color:confirmedDraft.finalSlot===s.label?s.color:"#6b8aa8"}}>
+                {s.label}<div style={{fontSize:10,fontWeight:400,color:"#6b8aa8"}}>{s.time}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{marginBottom:14}}><F label="確定地點"><input style={S.input} placeholder={g?.location||"地點"} value={confirmedDraft.finalLocation} onChange={e=>setConfirmedDraft(p=>({...p,finalLocation:e.target.value}))}/></F></div>
+        <div style={{marginBottom:16}}>
+          <label style={S.label}>是否開放繼續報名</label>
+          <div style={{display:"flex",gap:10}}>
+            {[[true,"✅ 開放報名"],[false,"🚫 不開放報名"]].map(([v,label])=>(
+              <div key={String(v)} onClick={()=>setConfirmedDraft(p=>({...p,allowJoin:v}))} style={{flex:1,padding:12,borderRadius:8,border:`2px solid ${confirmedDraft.allowJoin===v?"#38bdf8":"#1e2d45"}`,background:confirmedDraft.allowJoin===v?"#0c2a4a":"#080d18",cursor:"pointer",textAlign:"center",fontSize:13,fontWeight:700,color:confirmedDraft.allowJoin===v?"#38bdf8":"#6b8aa8"}}>{label}</div>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button style={S.btn("ghost")} onClick={()=>{setEditingConfirmed(false);setConfirmedEditGid(null);}}>← 返回</button>
+          <button style={{...S.btn("success"),flex:1}} onClick={markConfirmed}>✅ 確認成團</button>
+        </div>
+      </div>);
+    }
+    if(subPage.startsWith("edit-")&&editGroup){
+      const gid=editGroup.gid;
+      const dates=getDates(editGroup);
       return(<div style={S.card}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
           <h2 style={{...S.sT,margin:0}}>✏️ 編輯活動 #{gid}</h2>
@@ -2111,6 +2192,11 @@ function App() {
       if(!g)return null;
       const joiners=g.joiners||{},names=Object.keys(joiners);
       const dates=getDates(g);
+      const maxP=g.maxPeople?parseInt(g.maxPeople):null;
+      const joinerLimit=maxP?maxP-1:null;
+      const isConfirmed=g.status==="confirmed";
+      const wl=g.waitlist||{};
+      const wnames=Object.keys(wl);
       return(<div style={S.card}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
           <h2 style={{...S.sT,margin:0}}>{g.activityName}</h2>
@@ -2124,7 +2210,59 @@ function App() {
         <div style={{fontSize:12,color:"#8aaac8",marginBottom:14,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>
           <span>👤 {g.name}</span>{g.email&&<span>📧 {g.email}</span>}{g.dateStart&&<span>📅 {fmt(g.dateStart)}</span>}
         </div>
-        <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:10}}>🙋 跟團者（{names.length}人）</div>
+
+        {/* 已成案 */}
+        <div style={{background:"#080d18",border:`2px solid ${isConfirmed?"#34d39955":"#1e2d45"}`,borderRadius:10,padding:14,marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:isConfirmed?"#34d399":"#dde8f5",marginBottom:3}}>{isConfirmed?"✅ 已成團":"⏳ 進行中"}</div>
+              {isConfirmed&&g.confirmed?.finalDate&&<div style={{fontSize:12,color:"#6b8aa8"}}>確定時間：{g.confirmed.finalDate} {g.confirmed.finalSlot}</div>}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              {isConfirmed?(
+                <>
+                  <button style={{...S.btn("primary"),padding:"8px 14px",fontSize:12}} onClick={()=>openEditConfirmed(gid,{finalDate:g.confirmed?.finalDate||"",finalSlot:g.confirmed?.finalSlot||"",finalLocation:g.confirmed?.finalLocation||"",allowJoin:g.confirmed?.allowJoin!==false})}>✏️ 修改</button>
+                  <button style={{...S.btn("ghost"),padding:"8px 14px",fontSize:12}} onClick={()=>unmarkConfirmed(gid)}>取消成團</button>
+                </>
+              ):(
+                <button style={{...S.btn("success"),padding:"10px 18px"}} onClick={()=>openEditConfirmed(gid)}>✅ 標記已成案</button>
+              )}
+            </div>
+          </div>
+          {isConfirmed&&(
+            <div style={{marginTop:10}}>
+              <button style={S.btn("success")} onClick={()=>exportToGCal(g.activityName,g.confirmed.finalDate,g.confirmed.finalSlot,TIME_SLOTS.find(s=>s.label===g.confirmed.finalSlot)?.time,g.confirmed.finalLocation||g.location)}>📅 匯出到 Google Calendar</button>
+            </div>
+          )}
+        </div>
+
+        {/* 主揪可用時段 */}
+        <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:10,padding:14,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:"#38bdf8",marginBottom:3}}>📅 主揪可用時段</div>
+            <div style={{fontSize:12,color:"#6b8aa8"}}>{Object.keys(g.organizerSlots||{}).length>0?`已設定 ${Object.keys(g.organizerSlots).length} 個時段`:"尚未設定"}</div>
+          </div>
+          <button style={S.btn("primary")} onClick={()=>openEditOrgSlots(gid)} disabled={!dates}>✏️ 修改時段</button>
+        </div>
+
+        {/* 費用分攤試算 */}
+        {g.cost&&(()=>{
+          const n=parseInt(String(g.cost).replace(/[^\d]/g,""));
+          const totalPeople=1+names.length;
+          if(!n||totalPeople<1)return null;
+          const per=Math.ceil(n/totalPeople);
+          return(
+            <div style={{background:"#080d18",border:"1px solid #fbbf2433",borderRadius:10,padding:14,marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:14,color:"#fbbf24",marginBottom:4}}>💰 費用分攤試算</div>
+              <div style={{fontSize:12,color:"#6b8aa8"}}>總費用 NT${n} ÷ 目前 {totalPeople} 人 = <span style={{color:"#fbbf24",fontWeight:700,fontSize:14}}>每人約 NT${per}</span></div>
+            </div>
+          );
+        })()}
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff"}}>🙋 跟團者（{names.length}{joinerLimit?`/${joinerLimit}`:""}人）</div>
+          {joinerLimit&&<span style={{fontSize:12,color:names.length>=joinerLimit?"#f87171":"#34d399"}}>{names.length>=joinerLimit?"⛔ 額滿":`還剩 ${joinerLimit-names.length} 個名額`}</span>}
+        </div>
         {names.length===0&&<p style={{fontSize:13,color:"#374a5e"}}>還沒有人跟團</p>}
         {names.map((n,i)=>{
           const j=joiners[n],slotLabels=TIME_SLOTS.filter(slot=>Object.keys(j.slots||{}).some(k=>k.endsWith("-"+slot.key)));
@@ -2140,6 +2278,31 @@ function App() {
             <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>{slotLabels.map(s=><span key={s.key} style={S.badge(s.color)}>{s.label}</span>)}</div>
           </div>);
         })}
+
+        {/* 候補名單 */}
+        {wnames.length>0&&(
+          <div style={{marginTop:20}}>
+            <div style={{fontWeight:700,fontSize:14,color:"#fbbf24",marginBottom:10}}>⏳ 候補名單（{wnames.length}人）</div>
+            {wnames.map((n,i)=>{
+              const j=wl[n],slotLabels=TIME_SLOTS.filter(slot=>Object.keys(j.slots||{}).some(k=>k.endsWith("-"+slot.key)));
+              return(<div key={n} style={{background:"#0e0a04",border:"1px solid #fbbf2433",borderRadius:10,padding:14,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                  <span style={{...S.badge("#fbbf24")}}>#{i+1} {n}</span>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.btn("success"),padding:"6px 12px",fontSize:12}} onClick={()=>promoteWaitlist(gid,n)} disabled={joinerLimit&&names.length>=joinerLimit}>⬆ 遞補</button>
+                    <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>deleteWaitlistEntry(gid,n)}>🗑</button>
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:"#6b8aa8",marginTop:6,display:"flex",flexWrap:"wrap",gap:"3px 12px"}}>
+                  {j.email&&<span>📧 {j.email}</span>}
+                  {j.contact&&<span>📱 {j.contact}</span>}
+                </div>
+                {j.note&&<div style={{fontSize:12,color:"#6b8aa8",marginTop:4}}>備註：{j.note}</div>}
+                <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:4}}>{slotLabels.map(s=><span key={s.key} style={S.badge(s.color)}>{s.label}</span>)}</div>
+              </div>);
+            })}
+          </div>
+        )}
       </div>);
     }
     const changeAdminPw=async()=>{
@@ -2414,7 +2577,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260513a · 揪團神器</div>
+      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260513b · 揪團神器</div>
       <ToastOverlay/>
     </div>
   );
