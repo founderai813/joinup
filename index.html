@@ -2311,7 +2311,10 @@ function App() {
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={S.badge(COLORS[i%COLORS.length])}># {id}</span><span style={{fontWeight:700,fontSize:13}}>{g.activityName}</span>{g.status==="confirmed"&&<span style={{fontSize:11,color:"#34d399"}}>✅成團</span>}</div>
           <div style={{fontSize:12,color:"#6b8aa8",marginTop:3}}>👤 {g.name} ｜ 🙋 {jc}人 ｜ 📅 {fmt(g.dateStart)}</div>
         </div>
-        <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>deleteGroup(id)}>🗑</button>
+        <div style={{display:"flex",gap:6}}>
+          <button style={{...S.btn("primary"),padding:"6px 12px",fontSize:12}} onClick={()=>openEditGroup(id)}>✏️ 編輯</button>
+          <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>deleteGroup(id)}>🗑</button>
+        </div>
       </div>);})}
       <hr style={{...S.hr,margin:"20px 0"}}/>
       <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:10}}>🌟 許願池（{wishes.length}）</div>
