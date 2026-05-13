@@ -753,40 +753,6 @@ function App() {
     };
 
     return(<div style={{padding:"0 10px"}}>
-      {/* 資料恢復面板：手機看不到 console，把恢復狀況直接顯示在這 */}
-      {recoveryInfo&&(()=>{
-        const{total,restored,stats}=recoveryInfo;
-        const dataMissing=total===0;
-        const ok=total>0&&restored===0;
-        const recovered=restored>0;
-        const bg=dataMissing?"#1a0a0a":recovered?"#0a1a14":"#0a1422";
-        const border=dataMissing?"#dc262655":recovered?"#34d39955":"#1e2d45";
-        const color=dataMissing?"#f87171":recovered?"#34d399":"#8aaac8";
-        const icon=dataMissing?"🚨":recovered?"✅":"📊";
-        return(<div style={{...S.card,background:bg,border:`1px solid ${border}`,marginBottom:12}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:8}}>
-            <div style={{fontWeight:800,fontSize:14,color}}>{icon} 資料載入狀態</div>
-            <button style={{...S.btn("primary"),padding:"6px 14px",fontSize:12}} disabled={recovering} onClick={rescanData}>{recovering?"掃描中…":"🔄 重新掃描"}</button>
-          </div>
-          <div style={{fontSize:13,color:"#dde8f5",lineHeight:1.7}}>
-            {dataMissing&&<div style={{color:"#f87171",fontWeight:700,marginBottom:6}}>⚠ 所有來源都沒有找到揪團資料</div>}
-            {recovered&&<div style={{color:"#34d399",fontWeight:700,marginBottom:6}}>🎉 已從備份位置恢復 {restored} 筆活動到雲端</div>}
-            {ok&&<div style={{marginBottom:6}}>共載入 <b style={{color:"#38bdf8"}}>{total}</b> 筆活動</div>}
-          </div>
-          <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.8,paddingTop:8,borderTop:`1px solid ${border}`}}>
-            <div>☁️ Firestore 新集合：<b style={{color:stats.activities>0?"#34d399":"#6b8aa8"}}>{stats.activities}</b> 筆</div>
-            <div>📦 Firestore 舊文件：<b style={{color:stats.oldDoc>0?"#fbbf24":"#6b8aa8"}}>{stats.oldDoc}</b> 筆</div>
-            <div>📱 本機個別快取：<b style={{color:stats.lsIndividual>0?"#a78bfa":"#6b8aa8"}}>{stats.lsIndividual}</b> 筆</div>
-            <div>📱 本機舊快取：<b style={{color:stats.lsOld>0?"#a78bfa":"#6b8aa8"}}>{stats.lsOld}</b> 筆</div>
-          </div>
-          {dataMissing&&(
-            <div style={{marginTop:10,padding:10,background:"#080d18",border:"1px dashed #dc262655",borderRadius:8,fontSize:12,color:"#9a6a6a",lineHeight:1.6}}>
-              如果你之前用過這台手機開啟過揪團，請點上面的「🔄 重新掃描」再試一次。如果還是 0 筆，代表四個來源都已經被清空，需要從 Firebase Console 的時光機（PITR）恢復。
-            </div>
-          )}
-        </div>);
-      })()}
-
       {/* 使用教學 */}
       <div style={{...S.card,marginBottom:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowGuide(p=>!p)}>
@@ -2070,6 +2036,36 @@ function App() {
           <button style={S.btn("ghost")} onClick={()=>{setAuthed(false);setPw("");}}>登出</button>
         </div>
       </div>
+      {/* 資料載入狀態（只在管理員後台顯示） */}
+      {recoveryInfo&&(()=>{
+        const{total,restored,stats}=recoveryInfo;
+        const dataMissing=total===0;
+        const ok=total>0&&restored===0;
+        const recovered=restored>0;
+        const bg=dataMissing?"#1a0a0a":recovered?"#0a1a14":"#0a1422";
+        const border=dataMissing?"#dc262655":recovered?"#34d39955":"#1e2d45";
+        const color=dataMissing?"#f87171":recovered?"#34d399":"#8aaac8";
+        const icon=dataMissing?"🚨":recovered?"✅":"📊";
+        return(<div style={{background:bg,border:`1px solid ${border}`,borderRadius:12,padding:14,marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:14,color,marginBottom:8}}>{icon} 資料載入狀態</div>
+          <div style={{fontSize:13,color:"#dde8f5",lineHeight:1.7}}>
+            {dataMissing&&<div style={{color:"#f87171",fontWeight:700,marginBottom:6}}>⚠ 所有來源都沒有找到揪團資料</div>}
+            {recovered&&<div style={{color:"#34d399",fontWeight:700,marginBottom:6}}>🎉 已從備份位置恢復 {restored} 筆活動到雲端</div>}
+            {ok&&<div style={{marginBottom:6}}>共載入 <b style={{color:"#38bdf8"}}>{total}</b> 筆活動</div>}
+          </div>
+          <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.8,paddingTop:8,borderTop:`1px solid ${border}`}}>
+            <div>☁️ Firestore 新集合：<b style={{color:stats.activities>0?"#34d399":"#6b8aa8"}}>{stats.activities}</b> 筆</div>
+            <div>📦 Firestore 舊文件：<b style={{color:stats.oldDoc>0?"#fbbf24":"#6b8aa8"}}>{stats.oldDoc}</b> 筆</div>
+            <div>📱 本機個別快取：<b style={{color:stats.lsIndividual>0?"#a78bfa":"#6b8aa8"}}>{stats.lsIndividual}</b> 筆</div>
+            <div>📱 本機舊快取：<b style={{color:stats.lsOld>0?"#a78bfa":"#6b8aa8"}}>{stats.lsOld}</b> 筆</div>
+          </div>
+          {dataMissing&&(
+            <div style={{marginTop:10,padding:10,background:"#080d18",border:"1px dashed #dc262655",borderRadius:8,fontSize:12,color:"#9a6a6a",lineHeight:1.6}}>
+              如果你之前用過這台手機開啟過揪團，請點上面的「🔄 重新掃描資料」再試一次。如果還是 0 筆，代表四個來源都已經被清空，需要從 Firebase Console 的時光機（PITR）恢復。
+            </div>
+          )}
+        </div>);
+      })()}
       {changingPw&&(
         <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14,marginBottom:16}}>
           <div style={{fontWeight:700,color:"#f87171",marginBottom:10,fontSize:13}}>🔑 更換管理員密碼</div>
