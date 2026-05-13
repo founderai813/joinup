@@ -753,40 +753,6 @@ function App() {
     };
 
     return(<div style={{padding:"0 10px"}}>
-      {/* 資料恢復面板：手機看不到 console，把恢復狀況直接顯示在這 */}
-      {recoveryInfo&&(()=>{
-        const{total,restored,stats}=recoveryInfo;
-        const dataMissing=total===0;
-        const ok=total>0&&restored===0;
-        const recovered=restored>0;
-        const bg=dataMissing?"#1a0a0a":recovered?"#0a1a14":"#0a1422";
-        const border=dataMissing?"#dc262655":recovered?"#34d39955":"#1e2d45";
-        const color=dataMissing?"#f87171":recovered?"#34d399":"#8aaac8";
-        const icon=dataMissing?"🚨":recovered?"✅":"📊";
-        return(<div style={{...S.card,background:bg,border:`1px solid ${border}`,marginBottom:12}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:8}}>
-            <div style={{fontWeight:800,fontSize:14,color}}>{icon} 資料載入狀態</div>
-            <button style={{...S.btn("primary"),padding:"6px 14px",fontSize:12}} disabled={recovering} onClick={rescanData}>{recovering?"掃描中…":"🔄 重新掃描"}</button>
-          </div>
-          <div style={{fontSize:13,color:"#dde8f5",lineHeight:1.7}}>
-            {dataMissing&&<div style={{color:"#f87171",fontWeight:700,marginBottom:6}}>⚠ 所有來源都沒有找到揪團資料</div>}
-            {recovered&&<div style={{color:"#34d399",fontWeight:700,marginBottom:6}}>🎉 已從備份位置恢復 {restored} 筆活動到雲端</div>}
-            {ok&&<div style={{marginBottom:6}}>共載入 <b style={{color:"#38bdf8"}}>{total}</b> 筆活動</div>}
-          </div>
-          <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.8,paddingTop:8,borderTop:`1px solid ${border}`}}>
-            <div>☁️ Firestore 新集合：<b style={{color:stats.activities>0?"#34d399":"#6b8aa8"}}>{stats.activities}</b> 筆</div>
-            <div>📦 Firestore 舊文件：<b style={{color:stats.oldDoc>0?"#fbbf24":"#6b8aa8"}}>{stats.oldDoc}</b> 筆</div>
-            <div>📱 本機個別快取：<b style={{color:stats.lsIndividual>0?"#a78bfa":"#6b8aa8"}}>{stats.lsIndividual}</b> 筆</div>
-            <div>📱 本機舊快取：<b style={{color:stats.lsOld>0?"#a78bfa":"#6b8aa8"}}>{stats.lsOld}</b> 筆</div>
-          </div>
-          {dataMissing&&(
-            <div style={{marginTop:10,padding:10,background:"#080d18",border:"1px dashed #dc262655",borderRadius:8,fontSize:12,color:"#9a6a6a",lineHeight:1.6}}>
-              如果你之前用過這台手機開啟過揪團，請點上面的「🔄 重新掃描」再試一次。如果還是 0 筆，代表四個來源都已經被清空，需要從 Firebase Console 的時光機（PITR）恢復。
-            </div>
-          )}
-        </div>);
-      })()}
-
       {/* 使用教學 */}
       <div style={{...S.card,marginBottom:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowGuide(p=>!p)}>
@@ -1964,6 +1930,9 @@ function App() {
     const setAuthed=(v)=>{superAuthedRef.current=v;setAuthedRaw(v);};
     const [subPage,setSubPage]=useState("dashboard");
     const [editJoiner,setEditJoiner]=useState(null),[editSlots,setEditSlots]=useState({});
+    const [editGroup,setEditGroup]=useState(null);
+    const [imgLoadingAdm,setImgLoadingAdm]=useState(false);
+    const [editingOrgSlots,setEditingOrgSlots]=useState(false),[orgSlotsDraft,setOrgSlotsDraft]=useState({});
     const [changingPw,setChangingPw]=useState(false);
     const [newPw,setNewPw]=useState("");
     const [newPw2,setNewPw2]=useState("");
@@ -2000,11 +1969,130 @@ function App() {
       await saveGroups(next); showToast("✅ 已更新"); setSubPage("group-"+gid);
     };
     const deleteWish=async(i)=>{await saveWishes(wishes.filter((_,j)=>j!==i));showToast("🗑 已刪除");};
+    const openEditGroup=(gid)=>{const g=groups[gid];if(!g)return;setEditGroup({...g,gid});setSubPage("edit-"+gid);};
+    const setEG=(k,v)=>setEditGroup(p=>({...p,[k]:v}));
+    const onPickImgAdm=async(e)=>{
+      const file=e.target.files?.[0]; e.target.value="";
+      if(!file)return;
+      if(file.size>10*1024*1024){showToast("❌ 圖片太大（>10MB）");return;}
+      const current=getImages(editGroup);
+      if(current.length>=3){showToast("❌ 最多 3 張圖片");return;}
+      setImgLoadingAdm(true);
+      try{const dataUrl=await compressImage(file,700,0.65); setEG("images",[...current,dataUrl]); setEG("image",""); showToast("🖼 已加入圖片，記得按儲存");}
+      catch{showToast("❌ 圖片處理失敗");}
+      finally{setImgLoadingAdm(false);}
+    };
+    const saveGroupInfo=async()=>{
+      if(!editGroup?.gid)return;
+      const gid=editGroup.gid;
+      if(!(editGroup.activityName||"").trim()){showToast("❗ 請填寫活動名稱");return;}
+      const latest=await getLatestSafe();
+      const latestGroup=latest[gid]||groups[gid]||{};
+      const{gid:_,...rest}=editGroup;
+      const merged={
+        ...latestGroup,
+        ...rest,
+        joiners:latestGroup.joiners||{},
+        waitlist:latestGroup.waitlist||{},
+        comments:latestGroup.comments||[],
+        organizerSlots:latestGroup.organizerSlots||rest.organizerSlots||{},
+      };
+      const next={...latest,[gid]:merged};
+      await saveGroups(next);
+      setEditGroup({...merged,gid});
+      showToast("✅ 已更新活動資訊");
+    };
+    const openEditOrgSlots=(gid)=>{setOrgSlotsDraft({...(groups[gid]?.organizerSlots||{})});setEditingOrgSlots(true);};
+    const saveOrgSlots=async()=>{
+      if(!editGroup?.gid)return;
+      const gid=editGroup.gid;
+      const latest=await getLatestSafe();
+      const latestGroup=latest[gid]||{};
+      const next={...latest,[gid]:{...latestGroup,organizerSlots:orgSlotsDraft}};
+      await saveGroups(next); setEditingOrgSlots(false); showToast("✅ 已更新主揪時段");
+    };
     if(!authed)return(<div style={S.card}>
       <h2 style={S.sT}>🛡 網頁管理員</h2>
       <div style={{marginBottom:16}}><F label="管理員密碼"><input type="password" style={S.input} placeholder="管理員密碼" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()}/></F></div>
       <button style={{...S.btn("primary"),width:"100%"}} onClick={login}>登入 →</button>
     </div>);
+    if(subPage.startsWith("edit-")&&editGroup){
+      const gid=editGroup.gid;
+      const dates=getDates(editGroup);
+      if(editingOrgSlots)return(<div style={S.card}>
+        <h2 style={S.sT}>📅 修改主揪時段</h2>
+        {dates?<SlotPicker dates={dates} mySlots={orgSlotsDraft} setMySlots={setOrgSlotsDraft} otherJoiners={groups[gid]?.joiners||{}}/>:<div style={{color:"#f87171",fontSize:13}}>請先設定活動日期</div>}
+        <div style={{display:"flex",gap:10,marginTop:16}}>
+          <button style={S.btn("ghost")} onClick={()=>setEditingOrgSlots(false)}>← 返回</button>
+          <button style={{...S.btn("success"),flex:1}} onClick={saveOrgSlots}>💾 儲存時段</button>
+        </div>
+      </div>);
+      return(<div style={S.card}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+          <h2 style={{...S.sT,margin:0}}>✏️ 編輯活動 #{gid}</h2>
+          <button style={S.btn("ghost")} onClick={()=>setSubPage("group-"+gid)}>← 返回</button>
+        </div>
+        <div style={{background:"#080d18",border:"1px solid #38bdf833",borderRadius:10,padding:14,marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:14,color:"#38bdf8",marginBottom:3}}>📅 主揪可用時段</div>
+            <div style={{fontSize:12,color:"#6b8aa8"}}>{Object.keys(groups[gid]?.organizerSlots||{}).length>0?`已設定 ${Object.keys(groups[gid].organizerSlots).length} 個時段`:"尚未設定"}</div>
+          </div>
+          <button style={S.btn("primary")} onClick={()=>openEditOrgSlots(gid)}>✏️ 修改時段</button>
+        </div>
+        <div style={{background:"#080d18",border:"1px solid #1e2d45",borderRadius:10,padding:16,marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:12}}>✏️ 活動資訊</div>
+          <div style={S.g2}><F label="活動名稱"><input style={S.input} value={editGroup?.activityName||""} onChange={e=>setEG("activityName",e.target.value)}/></F><F label="開團者姓名"><input style={S.input} value={editGroup?.name||""} onChange={e=>setEG("name",e.target.value)}/></F></div>
+          <div style={{marginBottom:14}}>
+            <label style={S.label}>活動分類</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {CATEGORIES.map(c=>(
+                <div key={c.key} onClick={()=>setEG("category",c.key)} style={{padding:"6px 12px",borderRadius:8,border:`2px solid ${editGroup?.category===c.key?c.color:"#1e2d45"}`,background:editGroup?.category===c.key?c.color+"22":"#080d18",cursor:"pointer",fontSize:12,fontWeight:700,color:editGroup?.category===c.key?c.color:"#6b8aa8"}}>{c.label}</div>
+              ))}
+            </div>
+          </div>
+          <div style={S.g2}><F label="信箱" hint="僅供通知"><input type="email" style={S.input} value={editGroup?.email||""} onChange={e=>setEG("email",e.target.value)}/></F><F label="聯絡方式"><input style={S.input} value={editGroup?.contact||""} onChange={e=>setEG("contact",e.target.value)}/></F></div>
+          <div style={S.g2}><F label="開始日期"><DateInput value={editGroup?.dateStart||""} onChange={v=>setEG("dateStart",v)}/></F><F label="結束日期"><DateInput value={editGroup?.dateEnd||""} min={editGroup?.dateStart} onChange={v=>setEG("dateEnd",v)}/></F></div>
+          <div style={S.g3}><F label="時數"><input type="number" style={S.input} value={editGroup?.hours||""} onChange={e=>setEG("hours",e.target.value)}/></F><F label="費用"><input style={S.input} value={editGroup?.cost||""} onChange={e=>setEG("cost",e.target.value)}/></F><F label="人數上限"><input type="number" style={S.input} value={editGroup?.maxPeople||""} onChange={e=>setEG("maxPeople",e.target.value)}/></F></div>
+          <div style={{marginBottom:14}}><F label="地點"><input style={S.input} value={editGroup?.location||""} onChange={e=>setEG("location",e.target.value)}/></F></div>
+          <div style={{marginBottom:14}}>
+            <label style={S.label}>限定團 / 開放團</label>
+            <div style={{display:"flex",gap:8}}>
+              {[["open","🌐 開放團"],["closed","🔒 限定團"]].map(([k,lab])=>(
+                <div key={k} onClick={()=>setEG("groupType",k)} style={{flex:1,padding:"8px 12px",borderRadius:8,border:`2px solid ${editGroup?.groupType===k?"#38bdf8":"#1e2d45"}`,background:editGroup?.groupType===k?"#38bdf822":"#080d18",cursor:"pointer",fontSize:12,fontWeight:700,color:editGroup?.groupType===k?"#38bdf8":"#6b8aa8",textAlign:"center"}}>{lab}</div>
+              ))}
+            </div>
+          </div>
+          <F label="說明"><textarea style={S.textarea} value={editGroup?.description||""} onChange={e=>setEG("description",e.target.value)}/></F>
+          <div style={{height:14}}/>
+          <F label="備註" hint="選填，跟團者看得到"><textarea style={S.textarea} value={editGroup?.note||""} onChange={e=>setEG("note",e.target.value)}/></F>
+          <div style={{marginTop:14}}>
+            <label style={S.label}>示意圖（最多 3 張）</label>
+            {(()=>{const imgs=getImages(editGroup);return(<>
+              {imgs.length>0&&(
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                  {imgs.map((src,idx)=>(
+                    <div key={idx} style={{position:"relative",width:imgs.length===1?"100%":"calc(50% - 4px)"}}>
+                      <img src={src} alt={`圖${idx+1}`} style={{width:"100%",height:imgs.length===1?220:130,objectFit:"cover",borderRadius:10,border:"1px solid #1e2d45",display:"block"}}/>
+                      <button type="button" onClick={()=>{const n=[...imgs];n.splice(idx,1);setEG("images",n);setEG("image","");}} style={{position:"absolute",top:6,right:6,background:"#dc2626",color:"#fff",border:"none",borderRadius:8,padding:"4px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {imgs.length<3&&(
+                <label style={{display:"block",background:"#080d18",border:"2px dashed #1e2d45",borderRadius:10,padding:"14px",textAlign:"center",cursor:"pointer",color:"#6b8aa8",fontSize:13}}>
+                  {imgLoadingAdm?"⏳ 處理中…":`📷 ${imgs.length>0?`再加一張（${imgs.length}/3）`:"上傳示意圖"}`}
+                  <input type="file" accept="image/*" onChange={onPickImgAdm} style={{display:"none"}}/>
+                </label>
+              )}
+            </>);})()}
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:14}}>
+            <button style={S.btn("ghost")} onClick={()=>setSubPage("group-"+gid)}>← 返回</button>
+            <button style={{...S.btn("success"),flex:1}} onClick={saveGroupInfo}>💾 儲存活動資訊</button>
+          </div>
+        </div>
+      </div>);
+    }
     if(subPage.startsWith("joiner-")&&editJoiner){
       const{gid}=editJoiner,dates=getDates(groups[gid]);
       return(<div style={S.card}>
@@ -2026,8 +2114,9 @@ function App() {
       return(<div style={S.card}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
           <h2 style={{...S.sT,margin:0}}>{g.activityName}</h2>
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             <button style={S.btn("ghost")} onClick={()=>setTab("view-"+gid)}>查看</button>
+            <button style={{...S.btn("primary"),padding:"8px 14px",fontSize:12}} onClick={()=>openEditGroup(gid)}>✏️ 編輯活動</button>
             <button style={{...S.btn("danger"),padding:"8px 14px",fontSize:12}} onClick={()=>deleteGroup(gid)}>🗑 刪除</button>
             <button style={S.btn("ghost")} onClick={()=>setSubPage("dashboard")}>← 返回</button>
           </div>
@@ -2070,6 +2159,36 @@ function App() {
           <button style={S.btn("ghost")} onClick={()=>{setAuthed(false);setPw("");}}>登出</button>
         </div>
       </div>
+      {/* 資料載入狀態（只在管理員後台顯示） */}
+      {recoveryInfo&&(()=>{
+        const{total,restored,stats}=recoveryInfo;
+        const dataMissing=total===0;
+        const ok=total>0&&restored===0;
+        const recovered=restored>0;
+        const bg=dataMissing?"#1a0a0a":recovered?"#0a1a14":"#0a1422";
+        const border=dataMissing?"#dc262655":recovered?"#34d39955":"#1e2d45";
+        const color=dataMissing?"#f87171":recovered?"#34d399":"#8aaac8";
+        const icon=dataMissing?"🚨":recovered?"✅":"📊";
+        return(<div style={{background:bg,border:`1px solid ${border}`,borderRadius:12,padding:14,marginBottom:16}}>
+          <div style={{fontWeight:800,fontSize:14,color,marginBottom:8}}>{icon} 資料載入狀態</div>
+          <div style={{fontSize:13,color:"#dde8f5",lineHeight:1.7}}>
+            {dataMissing&&<div style={{color:"#f87171",fontWeight:700,marginBottom:6}}>⚠ 所有來源都沒有找到揪團資料</div>}
+            {recovered&&<div style={{color:"#34d399",fontWeight:700,marginBottom:6}}>🎉 已從備份位置恢復 {restored} 筆活動到雲端</div>}
+            {ok&&<div style={{marginBottom:6}}>共載入 <b style={{color:"#38bdf8"}}>{total}</b> 筆活動</div>}
+          </div>
+          <div style={{fontSize:12,color:"#6b8aa8",lineHeight:1.8,paddingTop:8,borderTop:`1px solid ${border}`}}>
+            <div>☁️ Firestore 新集合：<b style={{color:stats.activities>0?"#34d399":"#6b8aa8"}}>{stats.activities}</b> 筆</div>
+            <div>📦 Firestore 舊文件：<b style={{color:stats.oldDoc>0?"#fbbf24":"#6b8aa8"}}>{stats.oldDoc}</b> 筆</div>
+            <div>📱 本機個別快取：<b style={{color:stats.lsIndividual>0?"#a78bfa":"#6b8aa8"}}>{stats.lsIndividual}</b> 筆</div>
+            <div>📱 本機舊快取：<b style={{color:stats.lsOld>0?"#a78bfa":"#6b8aa8"}}>{stats.lsOld}</b> 筆</div>
+          </div>
+          {dataMissing&&(
+            <div style={{marginTop:10,padding:10,background:"#080d18",border:"1px dashed #dc262655",borderRadius:8,fontSize:12,color:"#9a6a6a",lineHeight:1.6}}>
+              如果你之前用過這台手機開啟過揪團，請點上面的「🔄 重新掃描資料」再試一次。如果還是 0 筆，代表四個來源都已經被清空，需要從 Firebase Console 的時光機（PITR）恢復。
+            </div>
+          )}
+        </div>);
+      })()}
       {changingPw&&(
         <div style={{background:"#1a0a0a",border:"1px solid #f8717133",borderRadius:10,padding:14,marginBottom:16}}>
           <div style={{fontWeight:700,color:"#f87171",marginBottom:10,fontSize:13}}>🔑 更換管理員密碼</div>
@@ -2192,7 +2311,10 @@ function App() {
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={S.badge(COLORS[i%COLORS.length])}># {id}</span><span style={{fontWeight:700,fontSize:13}}>{g.activityName}</span>{g.status==="confirmed"&&<span style={{fontSize:11,color:"#34d399"}}>✅成團</span>}</div>
           <div style={{fontSize:12,color:"#6b8aa8",marginTop:3}}>👤 {g.name} ｜ 🙋 {jc}人 ｜ 📅 {fmt(g.dateStart)}</div>
         </div>
-        <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>deleteGroup(id)}>🗑</button>
+        <div style={{display:"flex",gap:6}}>
+          <button style={{...S.btn("primary"),padding:"6px 12px",fontSize:12}} onClick={()=>openEditGroup(id)}>✏️ 編輯</button>
+          <button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>deleteGroup(id)}>🗑</button>
+        </div>
       </div>);})}
       <hr style={{...S.hr,margin:"20px 0"}}/>
       <div style={{fontWeight:700,fontSize:14,color:"#e2f0ff",marginBottom:10}}>🌟 許願池（{wishes.length}）</div>
@@ -2292,7 +2414,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260506a · 揪團神器</div>
+      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260513a · 揪團神器</div>
       <ToastOverlay/>
     </div>
   );
