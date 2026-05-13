@@ -1624,6 +1624,9 @@ function App() {
     const [editingOrgSlots,setEditingOrgSlots]=useState(false),[orgSlotsDraft,setOrgSlotsDraft]=useState({});
     const [editingConfirmed,setEditingConfirmed]=useState(false);
     const [confirmedDraft,setConfirmedDraft]=useState({finalDate:"",finalSlot:"",finalLocation:"",allowJoin:true});
+    const [changingGroupPw,setChangingGroupPw]=useState(false);
+    const [newAdminPw,setNewAdminPw]=useState(""),[newAdminPw2,setNewAdminPw2]=useState("");
+    const [newJoinPw,setNewJoinPw]=useState(""),[newJoinPw2,setNewJoinPw2]=useState("");
 
     const login=async()=>{
       const id=gid.trim().toLowerCase(),g=groups[id];
@@ -1658,6 +1661,30 @@ function App() {
       showToast("✅ 已更新");
     };
     const deleteGroup=async()=>{if(!window.confirm(`確定刪除「${group?.activityName}」？`))return;const latest=await getLatestSafe();const next={...latest};delete next[authedId];await saveGroups(next);setStep(1);setAuthedId(null);showToast("🗑 已刪除");};
+    const changeGroupPw=async()=>{
+      const isPrivate=group?.groupType==="private";
+      const wantAdmin=newAdminPw.trim().length>0||newAdminPw2.trim().length>0;
+      const wantJoin=isPrivate&&(newJoinPw.trim().length>0||newJoinPw2.trim().length>0);
+      if(!wantAdmin&&!wantJoin){showToast("❗ 請至少填一組新密碼");return;}
+      if(wantAdmin){
+        if(newAdminPw.length<4){showToast("❗ 管理密碼至少 4 個字");return;}
+        if(newAdminPw!==newAdminPw2){showToast("❗ 管理密碼兩次輸入不一致");return;}
+      }
+      if(wantJoin){
+        if(newJoinPw.length<4){showToast("❗ 跟團密碼至少 4 個字");return;}
+        if(newJoinPw!==newJoinPw2){showToast("❗ 跟團密碼兩次輸入不一致");return;}
+      }
+      const latest=await getLatestSafe();
+      const latestGroup=latest[authedId]||{};
+      const patch={};
+      if(wantAdmin)patch.password=await sha256(newAdminPw);
+      if(wantJoin)patch.joinPassword=await sha256(newJoinPw);
+      const next={...latest,[authedId]:{...latestGroup,...patch}};
+      await saveGroups(next);
+      setEditGroup(p=>({...p,...patch}));
+      setChangingGroupPw(false);setNewAdminPw("");setNewAdminPw2("");setNewJoinPw("");setNewJoinPw2("");
+      showToast("✅ 密碼已更換！");
+    };
     const deleteJoiner=async(name)=>{const latest=await getLatestSafe();const lg=latest[authedId];if(!lg)return;const nj={...(lg.joiners||{})};delete nj[name];const next={...latest,[authedId]:{...lg,joiners:nj}};await saveGroups(next);showToast(`🗑 已刪除 ${name}`);};
     const openEditJoiner=(name)=>{const data=groups[authedId].joiners[name];setEditJoiner({name,note:data.note||""});setEditSlots({...(data.slots||{})});};
     const saveJoiner=async()=>{
@@ -1769,10 +1796,28 @@ function App() {
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button style={S.btn("ghost")} onClick={()=>setTab("view-"+authedId)}>查看活動</button>
           <button style={{...S.btn("secondary"),padding:"8px 14px",fontSize:12}} onClick={()=>{setTemplate(group);setTab("organizer");showToast("📋 已套用為新團模板");}}>📋 再開一團</button>
+          <button style={{...S.btn("warning"),padding:"8px 14px",fontSize:12}} onClick={()=>setChangingGroupPw(p=>!p)}>🔑 改密碼</button>
           <button style={{...S.btn("danger"),padding:"8px 14px",fontSize:12}} onClick={deleteGroup}>🗑 刪除</button>
           <button style={S.btn("ghost")} onClick={()=>{setStep(1);setAuthedId(null);setGid("");setPw("");}}>登出</button>
         </div>
       </div>
+
+      {changingGroupPw&&(
+        <div style={{background:"#1e0a0a",border:"1px solid #f8717144",borderRadius:10,padding:14,marginBottom:16}}>
+          <div style={{fontWeight:700,color:"#f87171",marginBottom:10,fontSize:13}}>🔑 更換此活動的密碼</div>
+          <div style={{fontSize:12,color:"#8aaac8",marginBottom:10}}>留空代表不更動該項。新密碼至少 4 個字，會以 SHA-256 hash 儲存。</div>
+          <div style={{marginBottom:10}}><F label="新管理密碼"><input type="password" style={S.input} placeholder="留空不更動" value={newAdminPw} onChange={e=>setNewAdminPw(e.target.value)}/></F></div>
+          <div style={{marginBottom:10}}><F label="再次輸入管理密碼"><input type="password" style={S.input} placeholder="再輸入一次" value={newAdminPw2} onChange={e=>setNewAdminPw2(e.target.value)}/></F></div>
+          {group?.groupType==="private"&&(<>
+            <div style={{marginBottom:10}}><F label="新跟團密碼"><input type="password" style={S.input} placeholder="留空不更動" value={newJoinPw} onChange={e=>setNewJoinPw(e.target.value)}/></F></div>
+            <div style={{marginBottom:10}}><F label="再次輸入跟團密碼"><input type="password" style={S.input} placeholder="再輸入一次" value={newJoinPw2} onChange={e=>setNewJoinPw2(e.target.value)}/></F></div>
+          </>)}
+          <div style={{display:"flex",gap:10,marginTop:10}}>
+            <button style={S.btn("ghost")} onClick={()=>{setChangingGroupPw(false);setNewAdminPw("");setNewAdminPw2("");setNewJoinPw("");setNewJoinPw2("");}}>取消</button>
+            <button style={{...S.btn("danger"),flex:1}} onClick={changeGroupPw}>確認更換密碼</button>
+          </div>
+        </div>
+      )}
 
       {/* 已成案按鈕 */}
       <div style={{background:"#080d18",border:`2px solid ${isConfirmed?"#34d39955":"#1e2d45"}`,borderRadius:10,padding:14,marginBottom:16}}>
@@ -2292,7 +2337,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260506a · 揪團神器</div>
+      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260513a · 揪團神器</div>
       <ToastOverlay/>
     </div>
   );
