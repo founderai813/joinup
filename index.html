@@ -420,7 +420,16 @@ function App() {
   // 初始化 tab：從 URL ?a=xxx 讀取，預設 home
   const initialTab=(()=>{try{const p=new URLSearchParams(location.search);const a=p.get("a");return a?"view-"+a:"home";}catch{return "home";}})();
   const [tab, setTabRaw] = useState(initialTab);
+  // 跟團 / 報名表單是否有未送出的內容（ViewTab 會更新此 ref）
+  const formDirtyRef = useRef(false);
+  const confirmLeaveForm = ()=>{
+    if(!formDirtyRef.current)return true;
+    const ok=window.confirm("⚠ 你還沒送出跟團 / 報名資料，離開會清空已填寫的內容。\n\n確定要離開嗎？");
+    if(ok)formDirtyRef.current=false;
+    return ok;
+  };
   const setTab = (t)=>{
+    if(!confirmLeaveForm())return;
     setTabRaw(t);
     try{
       const url=new URL(location.href);
@@ -432,6 +441,18 @@ function App() {
       history.replaceState({},"",url.toString());
     }catch{}
   };
+  // 關閉瀏覽器分頁 / 重整時，若表單還沒送出就警告
+  useEffect(()=>{
+    const handler=(e)=>{
+      if(formDirtyRef.current){
+        e.preventDefault();
+        e.returnValue="你還沒送出跟團 / 報名資料，離開會遺失已填寫的內容";
+        return e.returnValue;
+      }
+    };
+    window.addEventListener("beforeunload",handler);
+    return ()=>window.removeEventListener("beforeunload",handler);
+  },[]);
   const [toast, setToast] = useState(""); // 保留但不再觸發 App 重渲染（僅給舊程式相容，已改 showToast 走 event bus）
   const [template, setTemplate] = useState(null);
   // 用 useRef 保存開團表單（不觸發 App 重渲染），Tab 內用 local state 初始化自 ref
@@ -1161,6 +1182,22 @@ function App() {
       });
     });
 
+    // 表單是否有未送出的內容（在填寫跟團/報名/候補時觸發）
+    const formInProgress=(joinStep===2||joinStep===3||joinStep===4)&&!done;
+    const hasFormData=!!(name.trim()||email.trim()||contact.trim()||note.trim()||Object.keys(slots).length>0);
+    const isDirty=formInProgress&&hasFormData;
+    useEffect(()=>{
+      formDirtyRef.current=isDirty;
+    },[isDirty]);
+    useEffect(()=>()=>{formDirtyRef.current=false;},[]);
+    // 收合表單按鈕（會先確認是否要放棄已填寫的內容）
+    const collapseForm=()=>{
+      if(isDirty){
+        if(!window.confirm("⚠ 你還沒送出跟團 / 報名資料，關閉表單後資料會保留在頁面上，但如果離開活動頁就會清空。\n\n確定要關閉表單嗎？"))return;
+      }
+      setJoinStep(0);
+    };
+
     const submitJoin=async()=>{
       if(!name.trim()){showToast("❗ 請填寫姓名");return;}
       if(!email.trim()||!isValidEmail(email)){showToast("❗ 請填寫有效信箱");return;}
@@ -1379,8 +1416,11 @@ function App() {
           <SlotPicker dates={dates} mySlots={slots} setMySlots={setSlots} organizerSlots={group.organizerSlots||{}} otherJoiners={Object.fromEntries(Object.entries(joiners).filter(([n])=>n!==name.trim()))} restrictToOrganizer/>
           <div style={{height:14}}/>
           <F label="備註" hint="選填，想跟主揪說的話"><textarea style={S.textarea} placeholder="例：我會晚到、會帶朋友、有食物過敏…" value={note} onChange={e=>setNote(e.target.value)}/></F>
+          {isDirty&&(
+            <div style={{fontSize:12,color:"#fbbf24",marginTop:10,marginBottom:-4,padding:"8px 12px",background:"#1a1205",border:"1px solid #fbbf2433",borderRadius:8}}>⚠ 別忘了按下方「{joinStep===4?"加入候補":"送出跟團"}」，沒按主揪是收不到的！</div>
+          )}
           <div style={{display:"flex",gap:10,marginTop:14}}>
-            <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
+            <button style={S.btn("ghost")} onClick={collapseForm}>← 返回</button>
             <button style={{...S.btn(joinStep===4?"warning":"success"),flex:1,opacity:submitting?0.6:1}} onClick={joinStep===4?submitWaitlist:submitJoin} disabled={submitting}>{submitting?"送出中…":(joinStep===4?"⏳ 加入候補":"🙌 送出跟團！")}</button>
           </div>
         </div>
@@ -1393,8 +1433,11 @@ function App() {
           <div style={{marginBottom:14}}><F label="姓名" required><input style={S.input} placeholder="你的名字" value={name} onChange={e=>setName(e.target.value)}/></F></div>
           <div style={{marginBottom:14}}><F label="信箱" required hint="僅供活動通知"><input type="email" style={S.input} placeholder="your@email.com" value={email} onChange={e=>setEmail(e.target.value)}/></F></div>
           <F label="聯絡方式" required hint="如 IG、Line ID"><input style={S.input} placeholder="IG / Line ID" value={contact} onChange={e=>setContact(e.target.value)}/></F>
+          {isDirty&&(
+            <div style={{fontSize:12,color:"#fbbf24",marginTop:10,marginBottom:-4,padding:"8px 12px",background:"#1a1205",border:"1px solid #fbbf2433",borderRadius:8}}>⚠ 別忘了按下方「確認報名」，沒按主揪是收不到的！</div>
+          )}
           <div style={{display:"flex",gap:10,marginTop:14}}>
-            <button style={S.btn("ghost")} onClick={()=>setJoinStep(0)}>← 返回</button>
+            <button style={S.btn("ghost")} onClick={collapseForm}>← 返回</button>
             <button style={{...S.btn("success"),flex:1,opacity:submitting?0.6:1}} onClick={submitRegister} disabled={submitting}>{submitting?"送出中…":"🎉 確認報名！"}</button>
           </div>
         </div>
@@ -2577,7 +2620,7 @@ function App() {
         {!loading&&tab==="wish"&&<WishTab/>}
         {!loading&&isView&&<ViewTab gid={viewGid}/>}
       </div>
-      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260513b · 揪團神器</div>
+      <div style={{textAlign:"center",fontSize:10,color:"#374a5e",padding:"10px 0 20px"}}>JoinUp v20260515a · 揪團神器</div>
       <ToastOverlay/>
     </div>
   );
