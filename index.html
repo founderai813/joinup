@@ -784,11 +784,11 @@ function App() {
           <div style={{marginTop:16}}>
             <div style={{marginBottom:16}}>
               {[
-                {icon:"🚀",title:"開團中",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
-                {icon:"📋",title:"報名活動",desc:"在首頁或報名活動頁點選活動，填寫姓名、信箱、可用時間，送出報名"},
+                {icon:"🚀",title:"我要開團",desc:"建立活動，設定日期、人數、費用，選限定或開放團，分享編號給朋友"},
+                {icon:"📋",title:"我要報名",desc:"在首頁或我要報名頁點選活動，填寫姓名、信箱、可用時間，送出報名"},
                 {icon:"🔐",title:"團主管理",desc:"輸入開團編號+密碼，管理跟團者、確定活動時間、標記已成團"},
                 {icon:"🛡",title:"網頁管理員",desc:"使用管理員密碼登入，查看所有活動數據、刪除違規內容"},
-                {icon:"🌟",title:"許願池",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
+                {icon:"🌟",title:"我要許願",desc:"投入想玩的活動點子，其他人可以按讚支持，熱門願望顯示在首頁"},
                 {icon:"📅",title:"Google Calendar",desc:"成團後開團者確定時間，所有參加者可一鍵匯出到 Google 行事曆"},
               ].map(({icon,title,desc})=>(
                 <div key={title} style={{fontSize:13,color:"#6b8aa8",marginBottom:8,lineHeight:1.6}}>
@@ -1052,7 +1052,7 @@ function App() {
       </div>
     </div></div>);
     return(<div style={S.card}>
-      <h2 style={S.sT}>🚀 開團中</h2>
+      <h2 style={S.sT}>🚀 我要開團</h2>
       {/* 開放/限定 */}
       <div style={{marginBottom:14}}>
         <label style={S.label}>團的類型 <span style={{color:"#f87171"}}>*</span></label>
@@ -2549,7 +2549,7 @@ function App() {
     };
     const sorted=[...wishes].map((w,i)=>({...w,_i:i})).sort((a,b)=>(b.likes||0)-(a.likes||0)||(a.time-b.time));
     return(<div style={S.card}>
-      <h2 style={S.sT}>🌟 許願池</h2>
+      <h2 style={S.sT}>🌟 我要許願</h2>
       <p style={{fontSize:13,color:"#6b8aa8",marginBottom:14}}>投入想玩的活動點子，按讚支持你想參加的！</p>
       <F label="你想玩什麼？"><textarea style={S.textarea} placeholder="例：想去爬山、想辦桌遊之夜…" value={content} onChange={e=>setContent(e.target.value)}/></F>
       <button style={{...S.btn("primary"),marginTop:12}} onClick={submit}>🌟 投入許願池</button>
@@ -2595,7 +2595,7 @@ function App() {
   const overallPct=Math.max(capacityPct,Math.round((dailyU.read||0)/50000*100),Math.round((dailyU.write||0)/20000*100));
   const warnColor=overallPct>90?"#dc2626":overallPct>70?"#fbbf24":null;
 
-  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 開團中"},{key:"register",label:"📋 報名活動"},{key:"wish",label:"🌟 許願池"},{key:"manage",label:"🔐 團主及管理員",warn:warnColor}];
+  const navItems=[{key:"home",label:"🏠 首頁"},{key:"organizer",label:"🚀 我要開團"},{key:"register",label:"📋 我要報名"},{key:"wish",label:"🌟 我要許願"},{key:"manage",label:"🔐 團主及管理員",warn:warnColor}];
 
   return(
     <div style={S.root}>
